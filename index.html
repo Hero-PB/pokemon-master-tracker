@@ -1,9 +1,57 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <title>Pokémon Master Tracker</title>
-  </head>
-  <body>
-    <h1>Gotta Catch 'Em All!</h1>
-  </body>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pokémon Master Tracker</title>
+  <link rel="stylesheet" href="styles.css">
+  
+  <!-- Dexie.js library for IndexedDB offline browser storage -->
+  <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Pokémon Master Set Tracker</h1>
+    <p id="status-msg">Database status: Idle</p>
+  </header>
+
+  <!-- Filter & Controls Section -->
+  <section id="controls">
+    <div class="control-group">
+      <label for="set-select">Select Set:</label>
+      <select id="set-select">
+        <option value="">-- Load Sets First --</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <label for="search-input">Search Pokémon:</label>
+      <input type="text" id="search-input" placeholder="e.g. Charizard, Gengar...">
+    </div>
+
+    <div class="control-group toggles">
+      <label>
+        <input type="checkbox" id="toggle-missing" checked> Show Missing Cards
+      </label>
+      <label>
+        <input type="checkbox" id="toggle-prices"> Show Prices
+      </label>
+    </div>
+
+    <button id="btn-sync" class="btn-primary">Sync Set Data</button>
+  </section>
+
+  <!-- Progress Bar -->
+  <section id="progress-container">
+    <div id="progress-bar"></div>
+    <span id="progress-text">0 / 0 Cards Collected (0%)</span>
+  </section>
+
+  <!-- Main 2D Card Gallery Grid -->
+  <main id="card-gallery" class="gallery-grid">
+    <!-- Card items will be rendered here dynamically -->
+  </main>
+
+  <script src="app.js"></script>
+</body>
 </html>
