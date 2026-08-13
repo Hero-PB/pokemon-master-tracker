@@ -113,6 +113,11 @@ async function renderGallery() {
     cards = await db.cards.toArray();
   }
 
+    cards.sort((a, b) => {
+  // Extract just the left side of any slash (e.g., "10/102" -> "10")
+  const numA = String(a.number).split('/')[0].trim();
+  const numB = String(b.number).split('/')[0].trim();
+
   // --- NATURAL SORTING ADDED HERE ---
   // Sorts numbers logically (1, 2, 3 ... 10, 100) instead of alphabetically (1, 10, 100, 2)
   cards.sort((a, b) => {
@@ -122,10 +127,7 @@ async function renderGallery() {
     });
   });
 
-  cards.sort((a, b) => {
-  // Extract just the left side of any slash (e.g., "10/102" -> "10")
-  const numA = String(a.number).split('/')[0].trim();
-  const numB = String(b.number).split('/')[0].trim();
+
 
   return numA.localeCompare(numB, undefined, {
     numeric: true,
