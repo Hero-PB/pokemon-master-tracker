@@ -113,6 +113,15 @@ async function renderGallery() {
     cards = await db.cards.toArray();
   }
 
+  // --- NATURAL SORTING ADDED HERE ---
+  // Sorts numbers logically (1, 2, 3 ... 10, 100) instead of alphabetically (1, 10, 100, 2)
+  cards.sort((a, b) => {
+    return String(a.number).localeCompare(String(b.number), undefined, {
+      numeric: true,
+      sensitivity: 'base'
+    });
+  });
+
   if (searchQuery) {
     cards = cards.filter(c => c.name.toLowerCase().includes(searchQuery));
   }
