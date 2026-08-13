@@ -122,6 +122,17 @@ async function renderGallery() {
     });
   });
 
+  cards.sort((a, b) => {
+  // Extract just the left side of any slash (e.g., "10/102" -> "10")
+  const numA = String(a.number).split('/')[0].trim();
+  const numB = String(b.number).split('/')[0].trim();
+
+  return numA.localeCompare(numB, undefined, {
+    numeric: true,
+    sensitivity: 'base'
+  });
+});
+
   if (searchQuery) {
     cards = cards.filter(c => c.name.toLowerCase().includes(searchQuery));
   }
