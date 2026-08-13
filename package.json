@@ -1,0 +1,12 @@
+{
+  "name": "pokemon-master-tracker",
+  "version": "1.0.0",
+  "description": "Pokémon TCG Master Set Tracker App",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
