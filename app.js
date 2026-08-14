@@ -116,48 +116,29 @@ async function renderGallery() {
     cards = await db.cards.toArray();
   }
 
-// --- ROBUST NATURAL SORTING ---
+  // --- CLEAN & ROBUST NATURAL SORTING ---
   cards.sort((a, b) => {
+    // 1. Strip slashes if present (e.g., "10/102" -> "10")
     const numA = String(a.number).split('/')[0].trim();
     const numB = String(b.number).split('/')[0].trim();
 
+    // 2. Parse numbers
     const intA = parseInt(numA, 10);
     const intB = parseInt(numB, 10);
 
     const isPureNumA = !isNaN(intA) && /^\d+$/.test(numA);
     const isPureNumB = !isNaN(intB) && /^\d+$/.test(numB);
 
-    // If both are pure numbers (1, 2, 10, 100), compare mathematically
+    // 3. If both are pure numbers (1, 2, 10, 100), sort mathematically
     if (isPureNumA && isPureNumB) {
       return intA - intB;
     }
 
-    // Otherwise, use localeCompare for strings/prefixes
+    // 4. Otherwise, fallback to natural string sort (e.g., "SV01", "TG01")
     return numA.localeCompare(numB, undefined, { numeric: true, sensitivity: 'base' });
   });
 
-    cards.sort((a, b) => {
-  // Extract just the left side of any slash (e.g., "10/102" -> "10")
-  const numA = String(a.number).split('/')[0].trim();
-  const numB = String(b.number).split('/')[0].trim();
-
-  // --- NATURAL SORTING ADDED HERE ---
-  // Sorts numbers logically (1, 2, 3 ... 10, 100) instead of alphabetically (1, 10, 100, 2)
-  cards.sort((a, b) => {
-    return String(a.number).localeCompare(String(b.number), undefined, {
-      numeric: true,
-      sensitivity: 'base'
-    });
-  });
-
-
-
-  return numA.localeCompare(numB, undefined, {
-    numeric: true,
-    sensitivity: 'base'
-  });
-});
-
+  // Filter by search query if applicable
   if (searchQuery) {
     cards = cards.filter(c => c.name.toLowerCase().includes(searchQuery));
   }
