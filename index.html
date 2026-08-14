@@ -226,11 +226,15 @@
       overflow: hidden;
       border: 1px solid #2b303d;
       background-color: #0e1015;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
     }
 
     #three-container {
       width: 100%;
       height: 100%;
+      touch-action: none;
     }
 
     .three-toolbar {
@@ -523,7 +527,7 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
   <!-- Application Logic -->
-  <script src="app-v2.js?v=hud_jump_fixed_v1"></script>
+  <script src="app-v2.js?v=mobile_swipe_hud_v2"></script>
 
 </body>
 </html>

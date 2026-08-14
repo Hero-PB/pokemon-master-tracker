@@ -245,7 +245,7 @@ async function renderGallery() {
   // --- 3D MODE ---
   if (currentViewMode === '3D') {
     render3DCarousel(displayableCards, ownedMap);
-    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D (Scroll to spin, click focused card for Details).`;
+    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D (Scroll/Swipe to spin, tap focused card for Details).`;
     return;
   }
 
@@ -331,7 +331,7 @@ function init3DScene() {
         let minAngleDiff = Infinity;
         let activeIdx = 0;
 
-        // Pass 1: Identify the single closest card to front center
+        // Pass 1: Identify single closest card to front center
         cardMeshes.forEach((mesh, index) => {
           let currentWorldAngle = (mesh.userData.baseAngle + carouselGroup.rotation.y) % twoPi;
           if (currentWorldAngle > Math.PI) currentWorldAngle -= twoPi;
@@ -394,11 +394,7 @@ function applyCameraLock() {
   if (!controls || !camera) return;
 
   if (isCameraLocked) {
-    controls.enabled = true;
-    controls.enableRotate = false; // Prevents mouse dragging from tilting/flipping view
-    controls.enableZoom = false;   // Keeps wheel dedicated to spinning carousel
-    controls.enablePan = true;
-
+    controls.enabled = false; // Disable orbit dragging to prevent tilt break
     camera.position.set(0, 0, carouselRadius + 11.5);
     camera.lookAt(0, 0, 0);
     controls.target.set(0, 0, 0);
@@ -484,12 +480,61 @@ threeContainer.addEventListener('wheel', (e) => {
   }
 }, { passive: false });
 
+// --- MOBILE TOUCH SWIPE & DRAG HANDLERS ---
+let touchStartX = 0;
+let touchStartY = 0;
+let touchLastX = 0;
+let isTouching = false;
+let touchMoved = false;
+
+threeContainer.addEventListener('touchstart', (e) => {
+  if (currentViewMode !== '3D' || cardMeshes.length === 0) return;
+  if (e.touches.length === 1) {
+    isTouching = true;
+    touchMoved = false;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touchLastX = touchStartX;
+  }
+}, { passive: true });
+
+threeContainer.addEventListener('touchmove', (e) => {
+  if (!isTouching || currentViewMode !== '3D' || cardMeshes.length === 0) return;
+  if (e.touches.length === 1) {
+    const currentX = e.touches[0].clientX;
+    const deltaX = currentX - touchLastX;
+    touchLastX = currentX;
+
+    if (Math.abs(currentX - touchStartX) > 6 || Math.abs(e.touches[0].clientY - touchStartY) > 6) {
+      touchMoved = true;
+    }
+
+    const rotationSensitivity = 0.0055;
+    currentTargetRotation += deltaX * rotationSensitivity;
+  }
+}, { passive: true });
+
+threeContainer.addEventListener('touchend', (e) => {
+  if (!isTouching) return;
+  isTouching = false;
+
+  if (touchMoved && cardMeshes.length > 0) {
+    const angleStep = (2 * Math.PI) / cardMeshes.length;
+    currentTargetRotation = Math.round(currentTargetRotation / angleStep) * angleStep;
+  }
+}, { passive: true });
+
 // Raycaster: Click focused card -> Open Details | Click side card -> Spin to front
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
 threeContainer.addEventListener('click', async (e) => {
   if (currentViewMode !== '3D' || cardMeshes.length === 0) return;
+  
+  if (touchMoved) {
+    touchMoved = false;
+    return;
+  }
 
   const rect = renderer.domElement.getBoundingClientRect();
   mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
