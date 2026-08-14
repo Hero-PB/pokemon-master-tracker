@@ -25,6 +25,9 @@ const btnView3D = document.getElementById('btn-view-3d');
 const btnLockCamera = document.getElementById('btn-lock-camera');
 const btnResetView = document.getElementById('btn-reset-view');
 
+const hudCardBadge = document.getElementById('hud-card-badge');
+const hudCardInput = document.getElementById('hud-card-input');
+
 // Modal Elements
 const cardDetailModal = document.getElementById('card-detail-modal');
 const btnModalClose = document.getElementById('btn-modal-close');
@@ -310,15 +313,13 @@ function init3DScene() {
   dirLight.position.set(5, 12, 10);
   scene.add(dirLight);
 
-// --- Inside init3DScene() ---
-controls = new THREE.OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.05;
-controls.enableZoom = false; // <-- Disables mouse wheel from changing camera distance!
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
 
   applyCameraLock();
 
-  // Animation Loop: STRICT SINGLE-CARD FOCUS PULL
+  // Animation Loop with smooth rotation & single focused card pull-out
   function animate() {
     requestAnimationFrame(animate);
     if (currentViewMode === '3D' && renderer) {
@@ -330,7 +331,7 @@ controls.enableZoom = false; // <-- Disables mouse wheel from changing camera di
         let minAngleDiff = Infinity;
         let activeIdx = 0;
 
-        // Pass 1: Identify the SINGLE closest card to the front center
+        // Pass 1: Identify the single closest card to front center
         cardMeshes.forEach((mesh, index) => {
           let currentWorldAngle = (mesh.userData.baseAngle + carouselGroup.rotation.y) % twoPi;
           if (currentWorldAngle > Math.PI) currentWorldAngle -= twoPi;
@@ -345,17 +346,23 @@ controls.enableZoom = false; // <-- Disables mouse wheel from changing camera di
 
         currentFocusedIndex = activeIdx;
 
-        // Pass 2: Animate ONLY the active card forward; return all other cards to the ring
+        // Update the HUD Number Display in real-time
+        if (cardMeshes[activeIdx] && cardMeshes[activeIdx].userData.cardData) {
+          const focusedCard = cardMeshes[activeIdx].userData.cardData;
+          if (hudCardBadge && hudCardBadge.style.display !== 'none') {
+            hudCardBadge.textContent = `#${focusedCard.number}`;
+          }
+        }
+
+        // Pass 2: Animate only the active card forward; return others to base ring
         cardMeshes.forEach((mesh, index) => {
           const isTheFocusedCard = (index === activeIdx);
 
-          const targetScale = isTheFocusedCard ? 1.35 : 1.0;
-          const pullDistance = isTheFocusedCard ? 2.0 : 0.0; // Clean 2-unit pop toward camera
+          const targetScale = isTheFocusedCard ? 1.25 : 1.0;
+          const pullDistance = isTheFocusedCard ? 1.6 : 0.0;
 
-          // Smooth scale transition
           mesh.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), 0.15);
 
-          // Displace along base angle
           const currentRadius = carouselRadius + pullDistance;
           const baseAngle = mesh.userData.baseAngle;
 
@@ -388,18 +395,17 @@ function applyCameraLock() {
 
   if (isCameraLocked) {
     controls.enabled = true;
-    controls.enableRotate = false; // Disable orbit tilting/flipping
-    controls.enableZoom = false;   // Keep mouse wheel dedicated strictly to spinning cards
-    controls.enablePan = true;    // Allows right-click / middle-drag adjustments
+    controls.enableRotate = false; // Prevents mouse dragging from tilting/flipping view
+    controls.enableZoom = false;   // Keeps wheel dedicated to spinning carousel
+    controls.enablePan = true;
 
     camera.position.set(0, 0, carouselRadius + 11.5);
     camera.lookAt(0, 0, 0);
     controls.target.set(0, 0, 0);
   } else {
-    // Free 3D mode
     controls.enabled = true;
     controls.enableRotate = true;
-    controls.enableZoom = false; // Keep wheel dedicated to rotating carousel
+    controls.enableZoom = false;
     controls.minPolarAngle = 0.1;
     controls.maxPolarAngle = Math.PI - 0.1;
   }
@@ -459,10 +465,16 @@ function render3DCarousel(cards, ownedMap = new Map()) {
   applyCameraLock();
 }
 
-// Mouse Wheel: Roll through cards step-by-step
+// Mouse Wheel: Roll through cards (Shift + Wheel to zoom distance)
 threeContainer.addEventListener('wheel', (e) => {
   if (currentViewMode !== '3D' || cardMeshes.length === 0) return;
   e.preventDefault();
+
+  if (e.shiftKey) {
+    camera.position.z += e.deltaY * 0.01;
+    camera.position.z = Math.max(carouselRadius + 3, Math.min(carouselRadius + 30, camera.position.z));
+    return;
+  }
 
   const angleStep = (2 * Math.PI) / cardMeshes.length;
   if (e.deltaY > 0) {
@@ -472,7 +484,7 @@ threeContainer.addEventListener('wheel', (e) => {
   }
 }, { passive: false });
 
-// Raycaster: Click focused card -> Open Details Modal | Click side card -> Spin to front
+// Raycaster: Click focused card -> Open Details | Click side card -> Spin to front
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
@@ -490,12 +502,9 @@ threeContainer.addEventListener('click', async (e) => {
     const clickedMesh = intersects[0].object;
     const clickedIndex = clickedMesh.userData.index;
 
-    // IF CLICKED ON THE FOCUSED (CENTER) CARD: Open Information Legend Modal
     if (clickedIndex === currentFocusedIndex) {
       openCardDetailsModal(clickedMesh.userData.cardData, clickedMesh);
-    } 
-    // IF CLICKED ON A SIDE CARD: Spin it to the front
-    else {
+    } else {
       const targetAngle = -clickedMesh.userData.baseAngle;
       const currentRot = carouselGroup.rotation.y;
       const diff = Math.atan2(Math.sin(targetAngle - currentRot), Math.cos(targetAngle - currentRot));
@@ -504,7 +513,59 @@ threeContainer.addEventListener('click', async (e) => {
   }
 });
 
-// --- 8. CARD DETAIL MODAL / INFORMATION LEGEND ---
+// --- 8. JUMP TO CARD VIA HUD BADGE ---
+hudCardBadge.addEventListener('click', () => {
+  hudCardBadge.style.display = 'none';
+  hudCardInput.style.display = 'block';
+  hudCardInput.value = '';
+  hudCardInput.focus();
+});
+
+function jumpToCardNumber(inputVal) {
+  const query = inputVal.trim().toLowerCase().replace(/^#/, '');
+  if (!query || cardMeshes.length === 0) return;
+
+  let matchIndex = cardMeshes.findIndex(m => {
+    const num = String(m.userData.cardData.number).toLowerCase().trim();
+    return num === query || num.split('/')[0].trim() === query;
+  });
+
+  if (matchIndex === -1 && !isNaN(parseInt(query, 10))) {
+    const idx = parseInt(query, 10) - 1;
+    if (idx >= 0 && idx < cardMeshes.length) {
+      matchIndex = idx;
+    }
+  }
+
+  if (matchIndex !== -1) {
+    const targetMesh = cardMeshes[matchIndex];
+    const targetAngle = -targetMesh.userData.baseAngle;
+    const currentRot = carouselGroup.rotation.y;
+    const diff = Math.atan2(Math.sin(targetAngle - currentRot), Math.cos(targetAngle - currentRot));
+    currentTargetRotation = currentRot + diff;
+  }
+}
+
+hudCardInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    jumpToCardNumber(hudCardInput.value);
+    hudCardInput.style.display = 'none';
+    hudCardBadge.style.display = 'block';
+  } else if (e.key === 'Escape') {
+    hudCardInput.style.display = 'none';
+    hudCardBadge.style.display = 'block';
+  }
+});
+
+hudCardInput.addEventListener('blur', () => {
+  if (hudCardInput.value.trim() !== '') {
+    jumpToCardNumber(hudCardInput.value);
+  }
+  hudCardInput.style.display = 'none';
+  hudCardBadge.style.display = 'block';
+});
+
+// --- 9. CARD DETAIL MODAL / INFORMATION LEGEND ---
 async function openCardDetailsModal(card, meshRef) {
   activeModalCard = card;
   const isOwned = await db.collection.get(card.id);
@@ -558,7 +619,7 @@ window.addEventListener('click', (e) => {
   }
 });
 
-// --- 9. UI LISTENERS & TOOLBAR ---
+// --- 10. UI LISTENERS & TOOLBAR ---
 btnLockCamera.addEventListener('click', () => {
   isCameraLocked = !isCameraLocked;
   if (isCameraLocked) {
@@ -614,5 +675,5 @@ btnView3D.addEventListener('click', () => {
   renderGallery();
 });
 
-// App Boot
+// App Boot Sequence
 loadSets();
