@@ -47,7 +47,7 @@ let currentTargetRotation = 0;
 let carouselRadius = 8;
 let currentCardsList = [];
 let isCameraLocked = true;
-let currentFocusedIndex = -1;
+let currentFocusedIndex = 0;
 
 // Helper API Fetcher
 async function apiFetch(endpoint) {
@@ -316,49 +316,54 @@ function init3DScene() {
 
   applyCameraLock();
 
-  // Animation Loop with smooth rotation & focus pop-out
+  // Animation Loop with smooth rotation & focused card pull-out
   function animate() {
     requestAnimationFrame(animate);
     if (currentViewMode === '3D' && renderer) {
-      if (carouselGroup) {
+      if (carouselGroup && cardMeshes.length > 0) {
         // Smooth rotation easing
         carouselGroup.rotation.y += (currentTargetRotation - carouselGroup.rotation.y) * 0.12;
 
-        // Dynamic Focus Detection & Pop-out calculation
         const twoPi = Math.PI * 2;
-        let bestDistance = Infinity;
-        let activeIdx = -1;
+        let minAngleDiff = Infinity;
+        let activeIdx = 0;
 
+        // Loop over every card in the carousel
         cardMeshes.forEach((mesh, index) => {
-          // Calculate global angle relative to camera front (Z+)
-          const globalAngle = (mesh.userData.baseAngle + carouselGroup.rotation.y) % twoPi;
-          let normalizedAngle = Math.atan2(Math.sin(globalAngle), Math.cos(globalAngle)); // [-PI, PI]
+          // Calculate where this card is currently oriented relative to the camera front (0 radians)
+          let currentWorldAngle = (mesh.userData.baseAngle + carouselGroup.rotation.y) % twoPi;
+          if (currentWorldAngle > Math.PI) currentWorldAngle -= twoPi;
+          if (currentWorldAngle < -Math.PI) currentWorldAngle += twoPi;
 
-          const dist = Math.abs(normalizedAngle);
-          if (dist < bestDistance) {
-            bestDistance = dist;
+          const angleDist = Math.abs(currentWorldAngle);
+
+          // Find the exact closest card to the front
+          if (angleDist < minAngleDiff) {
+            minAngleDiff = angleDist;
             activeIdx = index;
           }
 
-          // Pull card out forward and enlarge if close to center front
-          const isCenter = dist < 0.22;
-          const targetScale = isCenter ? 1.25 : 1.0;
-          const targetPull = isCenter ? 1.4 : 0.0; // Push forward along its local Z normal
+          // If the card is close to the center front, pull it out and scale it up
+          const isFront = angleDist < 0.28;
+          const targetScale = isFront ? 1.35 : 1.0;
+          const pullDistance = isFront ? 1.6 : 0.0; // Pushes forward radially
 
           // Smoothly interpolate scale
           mesh.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), 0.15);
 
-          // Smoothly interpolate pull position
-          const currentBaseRadius = carouselRadius + targetPull;
-          const angle = mesh.userData.baseAngle;
-          mesh.position.x = Math.sin(angle) * currentBaseRadius;
-          mesh.position.z = Math.cos(angle) * currentBaseRadius;
+          // Smoothly displace along its base angle
+          const currentRadius = carouselRadius + pullDistance;
+          const baseAngle = mesh.userData.baseAngle;
+          mesh.position.x = Math.sin(baseAngle) * currentRadius;
+          mesh.position.z = Math.cos(baseAngle) * currentRadius;
         });
 
         currentFocusedIndex = activeIdx;
       }
 
-      controls.update();
+      if (!isCameraLocked) {
+        controls.update();
+      }
       renderer.render(scene, camera);
     }
   }
@@ -373,15 +378,19 @@ function init3DScene() {
 }
 
 function applyCameraLock() {
-  if (!controls) return;
+  if (!controls || !camera) return;
+
   if (isCameraLocked) {
-    // Lock to horizontal plane looking at center
-    controls.minPolarAngle = Math.PI / 2;
-    controls.maxPolarAngle = Math.PI / 2;
+    // Disable orbit mouse dragging so clicking doesn't rotate the view
+    controls.enabled = false;
+    // Lock camera centered right in front of the ring
     camera.position.set(0, 0, carouselRadius + 7.5);
+    camera.lookAt(0, 0, 0);
     controls.target.set(0, 0, 0);
   } else {
-    // Allow free 3D rotation
+    // Allow free orbit rotation
+    controls.enabled = true;
+    controls.enableRotate = true;
     controls.minPolarAngle = 0.1;
     controls.maxPolarAngle = Math.PI - 0.1;
   }
@@ -394,7 +403,7 @@ function render3DCarousel(cards, ownedMap = new Map()) {
   cardMeshes = [];
   currentTargetRotation = 0;
   carouselGroup.rotation.y = 0;
-  currentFocusedIndex = -1;
+  currentFocusedIndex = 0;
 
   if (!cards || cards.length === 0) return;
 
@@ -441,7 +450,7 @@ function render3DCarousel(cards, ownedMap = new Map()) {
   applyCameraLock();
 }
 
-// Wheel listener to roll the carousel smoothly
+// Mouse Wheel: Roll through cards step-by-step
 threeContainer.addEventListener('wheel', (e) => {
   if (currentViewMode !== '3D' || cardMeshes.length === 0) return;
   e.preventDefault();
@@ -454,7 +463,7 @@ threeContainer.addEventListener('wheel', (e) => {
   }
 }, { passive: false });
 
-// Raycaster for 3D clicks: Rotate side cards OR Open details legend on focused card
+// Raycaster: Click focused card -> Open Details Modal | Click side card -> Spin to front
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
@@ -472,11 +481,11 @@ threeContainer.addEventListener('click', async (e) => {
     const clickedMesh = intersects[0].object;
     const clickedIndex = clickedMesh.userData.index;
 
-    // IF CLICKED ON THE FOCUSED (CENTER) CARD: Open Information Legend Modal!
+    // IF CLICKED ON THE FOCUSED (CENTER) CARD: Open Information Legend Modal
     if (clickedIndex === currentFocusedIndex) {
       openCardDetailsModal(clickedMesh.userData.cardData, clickedMesh);
     } 
-    // IF CLICKED ON A SIDE CARD: Spin it into focus front & center!
+    // IF CLICKED ON A SIDE CARD: Spin it to the front
     else {
       const targetAngle = -clickedMesh.userData.baseAngle;
       const currentRot = carouselGroup.rotation.y;
@@ -556,6 +565,7 @@ btnLockCamera.addEventListener('click', () => {
 btnResetView.addEventListener('click', () => {
   if (camera && controls) {
     camera.position.set(0, 0, carouselRadius + 7.5);
+    camera.lookAt(0, 0, 0);
     controls.target.set(0, 0, 0);
     currentTargetRotation = 0;
   }
