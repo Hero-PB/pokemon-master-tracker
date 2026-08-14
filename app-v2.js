@@ -138,19 +138,18 @@ async function renderGallery() {
     statusMsg.textContent = `Searching TCGdex for "${searchQuery}"...`;
     
     try {
-      // Query TCGdex API directly for global search
       const apiResults = await apiFetch(`/cards?name=${encodeURIComponent(searchQuery)}`);
       
-      // Ensure we only keep cards that actually match the search term
+      // Filter out non-matching names and ensure valid card objects
       const matchedCards = apiResults.filter(c => 
-        c.name && c.name.toLowerCase().includes(searchQuery)
+        c && c.name && c.name.toLowerCase().includes(searchQuery)
       );
 
       cards = matchedCards.map(c => {
-        // Extract set prefix (e.g. "base1" from "base1-43")
         const idParts = c.id ? c.id.split('-') : ['unknown', '0'];
         const setCode = idParts[0].toUpperCase();
-        const cardNumber = idParts.length > 1 ? idParts[1] : (c.localId || '0');
+        // Extract card number cleanly
+        const cardNumber = idParts.length > 1 ? idParts.slice(1).join('-') : (c.localId || '0');
 
         return {
           id: c.id,
@@ -161,13 +160,11 @@ async function renderGallery() {
         };
       });
 
-      // Save to Dexie for offline persistence
       if (cards.length > 0) {
         await db.cards.bulkPut(cards);
       }
     } catch (err) {
       console.error('API Search Error:', err);
-      // Fallback to local database search if offline
       cards = await db.cards.where('name').startsWithIgnoreCase(searchQuery).toArray();
     }
   } 
@@ -181,7 +178,6 @@ async function renderGallery() {
 
   // --- NATURAL SORTING ---
   cards.sort((a, b) => {
-    // Group by Set first if searching across multiple sets
     if (!setId && a.set?.id !== b.set?.id) {
       return String(a.set?.id).localeCompare(String(b.set?.id));
     }
@@ -199,21 +195,23 @@ async function renderGallery() {
     return numA.localeCompare(numB, undefined, { numeric: true, sensitivity: 'base' });
   });
 
-  // Pull collection checkboxes
+  // Pull collection data
   const ownedCollection = await db.collection.toArray();
   const ownedMap = new Map(ownedCollection.map(i => [i.cardId, i]));
 
-  let ownedCount = 0;
-  let renderedCount = 0;
+  // --- FILTER DISPLAY CARDS ---
+  // Only process cards that pass the "Show Missing" criteria
+  const displayableCards = cards.filter(card => {
+    const isOwned = ownedMap.has(card.id);
+    return isOwned || showMissing;
+  });
 
-  // Render cards
-  cards.forEach(card => {
+  let ownedCount = 0;
+
+  // Render cards to the screen
+  displayableCards.forEach(card => {
     const isOwned = ownedMap.has(card.id);
     if (isOwned) ownedCount++;
-
-    if (!isOwned && !showMissing) return;
-
-    renderedCount++;
 
     const cardEl = document.createElement('div');
     cardEl.className = `card-item ${isOwned ? 'owned' : 'missing'}`;
@@ -221,7 +219,7 @@ async function renderGallery() {
     const setLabel = !setId && card.set?.name ? `[${card.set.name}] ` : '';
 
     cardEl.innerHTML = `
-      <img src="${card.image}" alt="${card.name}" loading="lazy">
+      <img src="${card.image}" alt="${card.name}" loading="lazy" onerror="this.src='https://via.placeholder.com/150';">
       <div style="margin-top:6px; font-weight:bold; font-size:0.8rem;">
         ${card.name} (${setLabel}#${card.number})
       </div>
@@ -239,13 +237,22 @@ async function renderGallery() {
     gallery.appendChild(cardEl);
   });
 
-  // Accurate Progress Calculation
-  const total = cards.length;
-  const pct = total > 0 ? Math.round((ownedCount / total) * 100) : 0;
+  // --- GUARANTEED MATCH COUNTER ---
+  // If "Show Missing" is checked, total equals all Slowbro cards.
+  // If unchecked, total equals owned Slowbro cards.
+  const totalCardsInSearch = cards.length;
+  const renderedCount = displayableCards.length;
+  const pct = totalCardsInSearch > 0 ? Math.round((ownedCount / totalCardsInSearch) * 100) : 0;
 
   progressBar.style.width = `${pct}%`;
-  progressText.textContent = `${ownedCount} / ${total} Cards Collected (${pct}%)`;
-  statusMsg.textContent = `Displaying ${renderedCount} of ${total} total cards.`;
+  
+  if (showMissing) {
+    progressText.textContent = `${ownedCount} / ${renderedCount} Cards Collected (${pct}%)`;
+    statusMsg.textContent = `Showing all ${renderedCount} matching cards.`;
+  } else {
+    progressText.textContent = `${ownedCount} / ${totalCardsInSearch} Cards Collected (${pct}%)`;
+    statusMsg.textContent = `Showing ${renderedCount} owned cards (hiding missing).`;
+  }
 }
 
 // Automatically clear gallery if search query is emptied while no set is selected
