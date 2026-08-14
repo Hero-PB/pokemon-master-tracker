@@ -74,18 +74,21 @@ btnSync.addEventListener('click', async () => {
   statusMsg.textContent = `Syncing set: ${setId}...`;
 
   try {
-    // Fetch full set details (includes all cards in set)
     const setDetails = await apiFetch(`/sets/${setId}`);
     const rawCards = setDetails.cards;
 
-    // Map card fields to fit our application schema
-    const formattedCards = rawCards.map(c => ({
-      id: c.id,
-      name: c.name,
-      number: c.localId,
-      image: c.image ? `${c.image}/low.webp` : 'https://via.placeholder.com/150',
-      set: { id: setId, name: setDetails.name }
-    }));
+    const formattedCards = rawCards.map(c => {
+      // Extract numeric portion from ID ("base1-1" -> "1") as a fallback
+      const extractedNumber = c.localId || (c.id ? c.id.split('-').pop() : '0');
+
+      return {
+        id: c.id,
+        name: c.name,
+        number: String(extractedNumber).trim(),
+        image: c.image ? `${c.image}/low.webp` : 'https://via.placeholder.com/150',
+        set: { id: setId, name: setDetails.name }
+      };
+    });
 
     await db.cards.bulkPut(formattedCards);
     statusMsg.textContent = `Saved ${formattedCards.length} cards locally!`;
@@ -112,6 +115,26 @@ async function renderGallery() {
   } else {
     cards = await db.cards.toArray();
   }
+
+// --- ROBUST NATURAL SORTING ---
+  cards.sort((a, b) => {
+    const numA = String(a.number).split('/')[0].trim();
+    const numB = String(b.number).split('/')[0].trim();
+
+    const intA = parseInt(numA, 10);
+    const intB = parseInt(numB, 10);
+
+    const isPureNumA = !isNaN(intA) && /^\d+$/.test(numA);
+    const isPureNumB = !isNaN(intB) && /^\d+$/.test(numB);
+
+    // If both are pure numbers (1, 2, 10, 100), compare mathematically
+    if (isPureNumA && isPureNumB) {
+      return intA - intB;
+    }
+
+    // Otherwise, use localeCompare for strings/prefixes
+    return numA.localeCompare(numB, undefined, { numeric: true, sensitivity: 'base' });
+  });
 
     cards.sort((a, b) => {
   // Extract just the left side of any slash (e.g., "10/102" -> "10")
