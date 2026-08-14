@@ -1,8 +1,9 @@
 // --- 1. INITIALIZE DEXIE DATABASE ---
 const db = new Dexie('PokemonMasterTrackerDB');
-db.version(1).stores({
+
+db.version(3).stores({
   sets: 'id, name, cardCount',
-  cards: 'id, name, number, [set.id]',
+  cards: 'id, name, number, set.id',  // <-- removed brackets here
   collection: 'cardId, collectedAt'
 });
 
