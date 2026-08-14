@@ -68,17 +68,20 @@ async function loadSets() {
 
 // 4. Sync Set Cards from TCGdex
 btnSync.addEventListener('click', async () => {
+  console.log('--- 1. SYNC BUTTON CLICKED ---');
   const setId = setSelect.value;
+  console.log('Selected Set ID:', setId);
+
   if (!setId) return alert('Please select a set first!');
 
   statusMsg.textContent = `Syncing set: ${setId}...`;
 
   try {
     const setDetails = await apiFetch(`/sets/${setId}`);
+    console.log('--- 2. API DATA RECEIVED ---', setDetails);
     const rawCards = setDetails.cards;
 
     const formattedCards = rawCards.map(c => {
-      // Extract numeric portion from ID ("base1-1" -> "1") as a fallback
       const extractedNumber = c.localId || (c.id ? c.id.split('-').pop() : '0');
 
       return {
@@ -91,23 +94,28 @@ btnSync.addEventListener('click', async () => {
     });
 
     await db.cards.bulkPut(formattedCards);
+    console.log('--- 3. CARDS SAVED TO DEXIE ---');
     statusMsg.textContent = `Saved ${formattedCards.length} cards locally!`;
 
     renderGallery();
   } catch (err) {
-    console.error(err);
+    console.error('SYNC ERROR:', err);
     statusMsg.textContent = 'Sync failed. Check your internet connection.';
   }
 });
 
 // 5. Render Card Gallery Grid
 async function renderGallery() {
+  console.log('--- 4. RENDER GALLERY CALLED ---');
   const setId = setSelect.value;
   const searchQuery = searchInput.value.toLowerCase().trim();
   const showMissing = toggleMissing.checked;
 
   gallery.innerHTML = '';
-  if (!setId && !searchQuery) return;
+  if (!setId && !searchQuery) {
+    console.log('Render exited early: No set or search query.');
+    return;
+  }
 
   let cards = [];
   if (setId) {
@@ -116,29 +124,29 @@ async function renderGallery() {
     cards = await db.cards.toArray();
   }
 
-  console.log("RAW CARDS FROM DEXIE:", cards.map(c => ({ id: c.id, name: c.name, number: c.number })));
+  console.log('--- 5. CARDS PULLED FROM DEXIE ---', cards.slice(0, 5));
 
   // --- CLEAN & ROBUST NATURAL SORTING ---
   cards.sort((a, b) => {
-    // 1. Strip slashes if present (e.g., "10/102" -> "10")
     const numA = String(a.number).split('/')[0].trim();
     const numB = String(b.number).split('/')[0].trim();
 
-    // 2. Parse numbers
     const intA = parseInt(numA, 10);
     const intB = parseInt(numB, 10);
 
     const isPureNumA = !isNaN(intA) && /^\d+$/.test(numA);
     const isPureNumB = !isNaN(intB) && /^\d+$/.test(numB);
 
-    // 3. If both are pure numbers (1, 2, 10, 100), sort mathematically
     if (isPureNumA && isPureNumB) {
       return intA - intB;
     }
 
-    // 4. Otherwise, fallback to natural string sort (e.g., "SV01", "TG01")
     return numA.localeCompare(numB, undefined, { numeric: true, sensitivity: 'base' });
   });
+
+  console.log('--- 6. CARDS AFTER SORTING ---', cards.slice(0, 5));
+
+  // (rest of render code...)
 
   // Filter by search query if applicable
   if (searchQuery) {
