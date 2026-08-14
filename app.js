@@ -116,6 +116,8 @@ async function renderGallery() {
     cards = await db.cards.toArray();
   }
 
+  console.log("RAW CARDS FROM DEXIE:", cards.map(c => ({ id: c.id, name: c.name, number: c.number })));
+
   // --- CLEAN & ROBUST NATURAL SORTING ---
   cards.sort((a, b) => {
     // 1. Strip slashes if present (e.g., "10/102" -> "10")
