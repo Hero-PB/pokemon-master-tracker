@@ -240,8 +240,63 @@
       <button id="btn-view-3d" class="btn-view">3D Carousel</button>
     </div>
 
-    <!-- 2D Card Grid -->
-    <div id="card-gallery" class="gallery-grid"></div>
+    /* 2D Gallery Grid */
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 15px;
+      width: 100%;
+    }
+
+    .card-item {
+      background-color: #1a1d26;
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: transform 0.2s, border-color 0.2s, background-color 0.2s;
+    }
+
+    .card-item:hover {
+      transform: translateY(-4px);
+    }
+
+    /* OWNED / COLLECTED: Full Color + Green Border Glow */
+    .card-item.owned {
+      border-color: #10b981;
+      background-color: #122820;
+    }
+
+    .card-item.owned img {
+      filter: none;
+      opacity: 1;
+    }
+
+    /* MISSING / UNCOLLECTED: Darkened & Grayscale Silhouette */
+    .card-item.missing {
+      border-color: #2b303d;
+      background-color: #14171f;
+    }
+
+    .card-item.missing img {
+      filter: grayscale(100%) brightness(35%);
+      opacity: 0.6;
+      transition: filter 0.3s ease, opacity 0.3s ease;
+    }
+
+    /* Hover effect to peek at missing card art */
+    .card-item.missing:hover img {
+      filter: grayscale(40%) brightness(75%);
+      opacity: 0.85;
+    }
+
+    .card-item img {
+      width: 100%;
+      height: auto;
+      border-radius: 4px;
+      display: block;
+    }
 
     <!-- 3D Scene Viewport -->
     <div id="three-container"></div>

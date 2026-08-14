@@ -200,14 +200,18 @@ async function renderGallery() {
 
   let ownedCount = 0;
 
-  // --- 3D MODE ---
+// --- 3D MODE ---
   if (currentViewMode === '3D') {
-    render3DCarousel(displayableCards);
+    // 1. Pass ownedMap into render3DCarousel so the 3D scene knows which cards are owned
+    render3DCarousel(displayableCards, ownedMap);
     
+    // 2. Count owned cards
+    ownedCount = 0;
+    cards.forEach(c => { if (ownedMap.has(c.id)) ownedCount++; });
+
     const totalCardsInSearch = cards.length;
     const pct = totalCardsInSearch > 0 ? Math.round((ownedCount / totalCardsInSearch) * 100) : 0;
     
-    cards.forEach(c => { if (ownedMap.has(c.id)) ownedCount++; });
     progressBar.style.width = `${pct}%`;
     progressText.textContent = `${ownedCount} / ${displayableCards.length} Cards in 3D View (${pct}%)`;
     statusMsg.textContent = `Rendering ${displayableCards.length} cards in 3D Carousel mode.`;
@@ -300,37 +304,39 @@ function init3DScene() {
 let carouselIndex = 0; // Active card focus index
 let activeCards = [];
 
-function render3DCarousel(cards) {
+function render3DCarousel(cards, ownedMap = new Map()) {
   init3DScene();
 
   activeCards = cards || [];
   
-  // Clear existing card meshes
   cardMeshes.forEach(mesh => scene.remove(mesh));
   cardMeshes = [];
 
   if (!activeCards || activeCards.length === 0) return;
 
   const textureLoader = new THREE.TextureLoader();
-  const cardGeometry = new THREE.PlaneGeometry(2.5, 3.5); // Card Aspect Ratio
+  const cardGeometry = new THREE.PlaneGeometry(2.5, 3.5);
 
   activeCards.forEach((card, index) => {
+    const isOwned = ownedMap.has(card.id);
     const texture = textureLoader.load(card.image);
+
+    // Apply bright full-color if owned, dark shadow/grayscale tint if missing
     const material = new THREE.MeshStandardMaterial({
       map: texture,
       side: THREE.DoubleSide,
-      roughness: 0.2,
-      metalness: 0.1
+      roughness: 0.3,
+      metalness: 0.1,
+      color: isOwned ? new THREE.Color(0xffffff) : new THREE.Color(0x222222)
     });
 
     const mesh = new THREE.Mesh(cardGeometry, material);
-    mesh.userData = { index: index }; // Attach index for clicking
+    mesh.userData = { index: index, id: card.id };
 
     scene.add(mesh);
     cardMeshes.push(mesh);
   });
 
-  // Clamp index if out of range
   if (carouselIndex >= activeCards.length) carouselIndex = Math.max(0, activeCards.length - 1);
 
   updateCarouselPositions();
