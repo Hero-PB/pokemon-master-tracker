@@ -8,18 +8,18 @@ db.version(3).stores({
 
 const FALLBACK_CARD_IMAGE = "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='210' viewBox='0 0 150 210'%3E%3Crect width='150' height='210' rx='8' fill='%231f2430' stroke='%233b4050' stroke-width='2'/%3E%3Ctext x='50%25' y='50%25' fill='%239ba1b0' font-family='sans-serif' font-size='13' font-weight='bold' text-anchor='middle' dy='.3em'%3ENo Card Image%3C/text%3E%3C/svg%3E";
 
-// Top 10 Popular Pokémon List (Halved Sizes)
+// Top 10 Popular Pokémon List (Calibrated Scale & Hover Height)
 const POPULAR_POKEMON_LIST = [
-  { name: 'Pikachu', id: 25, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png', scaleMultiplier: 0.75 },
-  { name: 'Charizard', id: 6, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png', scaleMultiplier: 1.05 },
-  { name: 'Mewtwo', id: 150, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/150.png', scaleMultiplier: 0.95 },
-  { name: 'Gengar', id: 94, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/94.png', scaleMultiplier: 0.85 },
-  { name: 'Lucario', id: 448, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/448.png', scaleMultiplier: 0.90 },
-  { name: 'Eevee', id: 133, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/133.png', scaleMultiplier: 0.70 },
-  { name: 'Rayquaza', id: 384, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/384.png', scaleMultiplier: 1.15 },
-  { name: 'Greninja', id: 658, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/658.png', scaleMultiplier: 0.90 },
-  { name: 'Garchomp', id: 445, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/445.png', scaleMultiplier: 1.00 },
-  { name: 'Snorlax', id: 143, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/143.png', scaleMultiplier: 0.95 }
+  { name: 'Pikachu', id: 25, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png', scaleMultiplier: 0.50 },
+  { name: 'Charizard', id: 6, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png', scaleMultiplier: 0.70 },
+  { name: 'Mewtwo', id: 150, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/150.png', scaleMultiplier: 0.65 },
+  { name: 'Gengar', id: 94, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/94.png', scaleMultiplier: 0.55 },
+  { name: 'Lucario', id: 448, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/448.png', scaleMultiplier: 0.60 },
+  { name: 'Eevee', id: 133, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/133.png', scaleMultiplier: 0.45 },
+  { name: 'Rayquaza', id: 384, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/384.png', scaleMultiplier: 0.78 },
+  { name: 'Greninja', id: 658, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/658.png', scaleMultiplier: 0.60 },
+  { name: 'Garchomp', id: 445, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/445.png', scaleMultiplier: 0.68 },
+  { name: 'Snorlax', id: 143, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/143.png', scaleMultiplier: 0.65 }
 ];
 
 // --- 2. DOM ELEMENTS ---
@@ -279,7 +279,7 @@ async function renderGallery() {
   // --- 3D MODE ---
   if (currentViewMode === '3D') {
     render3DCarousel(displayableCards, ownedMap);
-    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D (Toggle Auto-Showcase for 30° arena overview).`;
+    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D (Toggle Auto-Showcase for wide view).`;
     return;
   }
 
@@ -379,7 +379,7 @@ function init3DScene() {
   scene.add(carouselGroup);
 
   const aspect = threeContainer.clientWidth / threeContainer.clientHeight || 1;
-  camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
+  camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1500);
   camera.position.set(0, 0, 15);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -391,11 +391,11 @@ function init3DScene() {
   scene.add(ambientLight);
 
   const stadiumLight1 = new THREE.DirectionalLight(0xfff0b3, 1.3);
-  stadiumLight1.position.set(10, 25, 20);
+  stadiumLight1.position.set(10, 30, 25);
   scene.add(stadiumLight1);
 
   const stadiumLight2 = new THREE.DirectionalLight(0x38bdf8, 0.9);
-  stadiumLight2.position.set(-15, -10, -15);
+  stadiumLight2.position.set(-20, -10, -20);
   scene.add(stadiumLight2);
 
   // 1. Procedural Pokéball Floor
@@ -418,15 +418,15 @@ function init3DScene() {
   const ambientPos = new Float32Array(ambientCount * 3);
 
   for (let i = 0; i < ambientCount * 3; i += 3) {
-    ambientPos[i] = (Math.random() - 0.5) * 80;
-    ambientPos[i + 1] = (Math.random() - 0.5) * 35;
-    ambientPos[i + 2] = (Math.random() - 0.5) * 80;
+    ambientPos[i] = (Math.random() - 0.5) * 120;
+    ambientPos[i + 1] = (Math.random() - 0.5) * 45;
+    ambientPos[i + 2] = (Math.random() - 0.5) * 120;
   }
 
   ambientGeo.setAttribute('position', new THREE.BufferAttribute(ambientPos, 3));
   const ambientMat = new THREE.PointsMaterial({
     color: 0x38bdf8,
-    size: 0.2,
+    size: 0.25,
     transparent: true,
     opacity: 0.75
   });
@@ -440,7 +440,7 @@ function init3DScene() {
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
   controls.minDistance = 3;
-  controls.maxDistance = 250;
+  controls.maxDistance = 600;
 
   applyViewMode();
 
@@ -454,7 +454,7 @@ function init3DScene() {
         const positions = ambientParticlesMesh.geometry.attributes.position.array;
         for (let i = 1; i < positions.length; i += 3) {
           positions[i] += 0.02;
-          if (positions[i] > 20) positions[i] = -10;
+          if (positions[i] > 25) positions[i] = -10;
         }
         ambientParticlesMesh.geometry.attributes.position.needsUpdate = true;
         ambientParticlesMesh.rotation.y += 0.0005;
@@ -462,7 +462,7 @@ function init3DScene() {
 
       // Auto-Showcase continuous slow roll
       if (isShowcaseAutoMode && carouselGroup) {
-        currentTargetRotation -= 0.0025;
+        currentTargetRotation -= 0.0022;
       }
 
       // Animate Center Pokémon Spawner ONLY if Auto-Showcase is active
@@ -502,8 +502,8 @@ function init3DScene() {
         cardMeshes.forEach((mesh, index) => {
           const isTheFocusedCard = (index === activeIdx);
 
-          const targetScale = isShowcaseAutoMode ? 1.05 : (isTheFocusedCard ? 1.25 : 1.0);
-          const pullDistance = isShowcaseAutoMode ? 0.4 : (isTheFocusedCard ? 1.6 : 0.0);
+          const targetScale = isShowcaseAutoMode ? 1.0 : (isTheFocusedCard ? 1.25 : 1.0);
+          const pullDistance = isShowcaseAutoMode ? 0.0 : (isTheFocusedCard ? 1.6 : 0.0);
 
           mesh.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), 0.15);
 
@@ -538,11 +538,10 @@ function init3DScene() {
 function initCenterPokeballSpawner() {
   spawnerGroup = new THREE.Group();
   scene.add(spawnerGroup);
-  spawnerGroup.position.set(0, -1.2, 0);
+  spawnerGroup.position.set(0, -1.8, 0);
   spawnerGroup.visible = false;
 
-  // Proportional Pokéball size (Halved)
-  const ballRadius = Math.max(1.3, carouselRadius * 0.11);
+  const ballRadius = Math.max(1.0, carouselRadius * 0.045);
   
   // Top Red Half
   const topGeo = new THREE.SphereGeometry(ballRadius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
@@ -570,8 +569,8 @@ function initCenterPokeballSpawner() {
   pokeballButton.position.set(0, 0, ballRadius * 0.96);
   spawnerGroup.add(pokeballButton);
 
-  // Light Particles for Summoning Burst (150 Particles)
-  const pCount = 150;
+  // Light Particles for Summoning Burst
+  const pCount = 140;
   const summonGeo = new THREE.BufferGeometry();
   const summonPos = new Float32Array(pCount * 3);
   summonParticleVelocities = [];
@@ -581,16 +580,16 @@ function initCenterPokeballSpawner() {
     summonPos[i * 3 + 1] = 0;
     summonPos[i * 3 + 2] = 0;
     summonParticleVelocities.push({
-      vx: (Math.random() - 0.5) * (carouselRadius * 0.05),
-      vy: Math.random() * (carouselRadius * 0.06) + 0.15,
-      vz: (Math.random() - 0.5) * (carouselRadius * 0.05)
+      vx: (Math.random() - 0.5) * (carouselRadius * 0.03),
+      vy: Math.random() * (carouselRadius * 0.04) + 0.15,
+      vz: (Math.random() - 0.5) * (carouselRadius * 0.03)
     });
   }
 
   summonGeo.setAttribute('position', new THREE.BufferAttribute(summonPos, 3));
   const summonMat = new THREE.PointsMaterial({
     color: 0x38bdf8,
-    size: 0.5,
+    size: 0.45,
     transparent: true,
     opacity: 0,
     blending: THREE.AdditiveBlending
@@ -610,8 +609,8 @@ function loadPokemonShowcaseSprite(pokemon) {
   const textureLoader = new THREE.TextureLoader();
   const spriteTexture = textureLoader.load(pokemon.sprite);
   
-  // Halved Size: Spans ~0.85x to 1.1x of radius
-  const dynamicSize = carouselRadius * (pokemon.scaleMultiplier || 0.9);
+  // Proportional Scale matching screenshot
+  const dynamicSize = carouselRadius * (pokemon.scaleMultiplier || 0.60);
 
   const planeGeo = new THREE.PlaneGeometry(dynamicSize, dynamicSize);
   const planeMat = new THREE.MeshBasicMaterial({
@@ -621,7 +620,7 @@ function loadPokemonShowcaseSprite(pokemon) {
   });
 
   currentPokemonMesh = new THREE.Mesh(planeGeo, planeMat);
-  currentPokemonMesh.position.set(0, dynamicSize * 0.52, 0);
+  currentPokemonMesh.position.set(0, dynamicSize * 0.55 + (carouselRadius * 0.12), 0);
   currentPokemonMesh.scale.set(0, 0, 0);
   spawnerGroup.add(currentPokemonMesh);
 }
@@ -643,13 +642,13 @@ function animatePokeballSpawner() {
       pos[i * 3 + 1] += v.vy;
       pos[i * 3 + 2] += v.vz;
 
-      v.vx += (Math.random() - 0.5) * 0.02;
-      v.vz += (Math.random() - 0.5) * 0.02;
+      v.vx += (Math.random() - 0.5) * 0.015;
+      v.vz += (Math.random() - 0.5) * 0.015;
     }
     summonParticlesMesh.geometry.attributes.position.needsUpdate = true;
   }
 
-  const liftHeight = Math.max(1.2, carouselRadius * 0.15);
+  const liftHeight = Math.max(1.0, carouselRadius * 0.08);
 
   switch (spawnPhase) {
     case 'ENTER_BALL':
@@ -676,11 +675,11 @@ function animatePokeballSpawner() {
       break;
 
     case 'OPEN_BALL':
-      pokeballTopHalf.position.y = Math.min(liftHeight, pokeballTopHalf.position.y + 0.08);
-      pokeballTopHalf.rotation.x = -Math.min(1.2, pokeballTopHalf.position.y * 0.9);
+      pokeballTopHalf.position.y = Math.min(liftHeight, pokeballTopHalf.position.y + 0.06);
+      pokeballTopHalf.rotation.x = -Math.min(1.2, pokeballTopHalf.position.y * 1.2);
 
       if (currentPokemonMesh) {
-        currentPokemonMesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.06);
+        currentPokemonMesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.07);
       }
 
       if (spawnTimer > 1.5) {
@@ -691,13 +690,13 @@ function animatePokeballSpawner() {
 
     case 'POKEMON_OUT':
       summonParticlesMesh.material.opacity = Math.max(0, summonParticlesMesh.material.opacity - 0.04);
-      pokeballTopHalf.position.y = Math.max(0, pokeballTopHalf.position.y - 0.06);
-      pokeballTopHalf.rotation.x = Math.max(0, pokeballTopHalf.rotation.x - 0.06);
+      pokeballTopHalf.position.y = Math.max(0, pokeballTopHalf.position.y - 0.04);
+      pokeballTopHalf.rotation.x = Math.max(0, pokeballTopHalf.rotation.x - 0.04);
 
       if (currentPokemonMesh) {
-        const dynamicSize = carouselRadius * (POPULAR_POKEMON_LIST[currentPokemonIndex].scaleMultiplier || 0.9);
-        const baseH = dynamicSize * 0.52;
-        currentPokemonMesh.position.y = baseH + Math.sin(spawnTimer * 2.2) * (carouselRadius * 0.02);
+        const dynamicSize = carouselRadius * (POPULAR_POKEMON_LIST[currentPokemonIndex].scaleMultiplier || 0.60);
+        const baseH = dynamicSize * 0.55 + (carouselRadius * 0.12);
+        currentPokemonMesh.position.y = baseH + Math.sin(spawnTimer * 2.2) * (carouselRadius * 0.015);
       }
 
       if (spawnTimer > 6.0) {
@@ -708,7 +707,7 @@ function animatePokeballSpawner() {
       break;
 
     case 'RETURN_BALL':
-      pokeballTopHalf.position.y = Math.min(liftHeight, pokeballTopHalf.position.y + 0.08);
+      pokeballTopHalf.position.y = Math.min(liftHeight, pokeballTopHalf.position.y + 0.06);
 
       if (currentPokemonMesh) {
         currentPokemonMesh.scale.lerp(new THREE.Vector3(0, 0, 0), 0.12);
@@ -734,21 +733,19 @@ function applyViewMode() {
   if (!controls || !camera) return;
 
   if (isShowcaseAutoMode) {
-    // --- 30° ELEVATION FULL STADIUM SHOWCASE OVERVIEW ---
+    // --- EXACT SCREENSHOT PERSPECTIVE ---
     controls.enabled = true;
     controls.enableRotate = true;
     controls.enableZoom = true;
 
     if (spawnerGroup) spawnerGroup.visible = true;
 
-    // True 30-degree trigonometric pitch angle (sin(30°)=0.5, cos(30°)=0.866)
-    const viewDistance = carouselRadius * 3.2 + 12;
-    const camY = viewDistance * 0.50; // Sin(30°)
-    const camZ = viewDistance * 0.866; // Cos(30°)
+    // Proportional 3D Stadium geometry calibrated to fit full circular ring from top to bottom
+    const camY = carouselRadius * 0.78 + 4;
+    const camZ = carouselRadius * 1.82 + 10;
     
-    // Offset target forward so the front cards are fully within the bottom viewport
-    const targetZ = -carouselRadius * 0.15;
-    const targetY = carouselRadius * 0.25;
+    const targetY = carouselRadius * 0.08;
+    const targetZ = 0;
 
     camera.position.set(0, camY, camZ);
     camera.lookAt(0, targetY, targetZ);
@@ -844,7 +841,7 @@ threeContainer.addEventListener('wheel', (e) => {
 
   if (e.shiftKey) {
     camera.position.z += e.deltaY * 0.01;
-    camera.position.z = Math.max(carouselRadius + 3, Math.min(carouselRadius + 160, camera.position.z));
+    camera.position.z = Math.max(carouselRadius + 3, Math.min(carouselRadius + 300, camera.position.z));
     return;
   }
 
