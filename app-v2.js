@@ -118,28 +118,71 @@ btnSync.addEventListener('click', async () => {
 
 // 5. Render Card Gallery Grid
 async function renderGallery() {
-  console.log('--- 4. RENDER GALLERY CALLED ---');
   const setId = setSelect.value;
   const searchQuery = searchInput.value.toLowerCase().trim();
   const showMissing = toggleMissing.checked;
 
   gallery.innerHTML = '';
+
+  // 1. If neither set nor search query exists, show prompt and exit
   if (!setId && !searchQuery) {
-    console.log('Render exited early: No set or search query.');
+    statusMsg.textContent = 'Select a set or type a Pokémon name to search across all sets.';
     return;
   }
 
   let cards = [];
-  if (setId) {
+
+  // 2. SEARCH MODE: Searching for a specific Pokémon across all sets
+  if (searchQuery && !setId) {
+    statusMsg.textContent = `Searching for "${searchQuery}" across local database...`;
+    
+    // First, search cards stored in local Dexie database
+    cards = await db.cards.where('name').startsWithIgnoreCase(searchQuery).toArray();
+
+    // OPTIONAL: If local database yields few/no results, fetch from TCGdex API directly!
+    if (cards.length === 0 && searchQuery.length >= 3) {
+      statusMsg.textContent = `Searching TCGdex for "${searchQuery}"...`;
+      try {
+        const apiResults = await apiFetch(`/cards?name=${encodeURIComponent(searchQuery)}`);
+        
+        // Map API results to fit our card schema
+        cards = apiResults.map(c => {
+          const extractedNumber = c.localId || (c.id ? c.id.split('-').pop() : '0');
+          return {
+            id: c.id,
+            name: c.name,
+            number: String(extractedNumber).trim(),
+            image: c.image ? `${c.image}/low.webp` : 'https://via.placeholder.com/150',
+            set: { id: c.id.split('-')[0], name: c.id.split('-')[0].toUpperCase() }
+          };
+        });
+
+        // Save fetched cards to Dexie so future searches are instant
+        if (cards.length > 0) {
+          await db.cards.bulkPut(cards);
+        }
+      } catch (err) {
+        console.error('API Search Error:', err);
+      }
+    }
+  } 
+  // 3. SET MODE: Selected a specific set (with or without sub-filtering)
+  else if (setId) {
     cards = await db.cards.where('set.id').equals(setId).toArray();
-  } else {
-    cards = await db.cards.toArray();
+    if (searchQuery) {
+      cards = cards.filter(c => c.name.toLowerCase().includes(searchQuery));
+    }
   }
 
-  console.log('--- 5. CARDS PULLED FROM DEXIE ---', cards.slice(0, 5));
+  statusMsg.textContent = `Displaying ${cards.length} cards.`;
 
-  // --- CLEAN & ROBUST NATURAL SORTING ---
+  // --- NATURAL SORTING ---
   cards.sort((a, b) => {
+    // If viewing a single Pokémon across sets, sort by Set ID first, then card number
+    if (!setId && a.set?.id !== b.set?.id) {
+      return String(a.set?.id).localeCompare(String(b.set?.id));
+    }
+
     const numA = String(a.number).split('/')[0].trim();
     const numB = String(b.number).split('/')[0].trim();
 
@@ -149,22 +192,11 @@ async function renderGallery() {
     const isPureNumA = !isNaN(intA) && /^\d+$/.test(numA);
     const isPureNumB = !isNaN(intB) && /^\d+$/.test(numB);
 
-    if (isPureNumA && isPureNumB) {
-      return intA - intB;
-    }
-
+    if (isPureNumA && isPureNumB) return intA - intB;
     return numA.localeCompare(numB, undefined, { numeric: true, sensitivity: 'base' });
   });
 
-  console.log('--- 6. CARDS AFTER SORTING ---', cards.slice(0, 5));
-
-  // (rest of render code...)
-
-  // Filter by search query if applicable
-  if (searchQuery) {
-    cards = cards.filter(c => c.name.toLowerCase().includes(searchQuery));
-  }
-
+  // Render cards to gallery
   const ownedCollection = await db.collection.toArray();
   const ownedMap = new Map(ownedCollection.map(i => [i.cardId, i]));
 
@@ -179,9 +211,14 @@ async function renderGallery() {
     const cardEl = document.createElement('div');
     cardEl.className = `card-item ${isOwned ? 'owned' : 'missing'}`;
 
+    // Display Set Name alongside Card Number for cross-set searching!
+    const setLabel = !setId && card.set?.name ? `[${card.set.name}] ` : '';
+
     cardEl.innerHTML = `
       <img src="${card.image}" alt="${card.name}" loading="lazy">
-      <div style="margin-top:6px; font-weight:bold; font-size:0.8rem;">${card.name} (#${card.number})</div>
+      <div style="margin-top:6px; font-weight:bold; font-size:0.8rem;">
+        ${card.name} (${setLabel}#${card.number})
+      </div>
     `;
 
     cardEl.addEventListener('click', async () => {
@@ -196,11 +233,24 @@ async function renderGallery() {
     gallery.appendChild(cardEl);
   });
 
+  // Progress Bar update
   const total = cards.length;
   const pct = total > 0 ? Math.round((ownedCount / total) * 100) : 0;
   progressBar.style.width = `${pct}%`;
   progressText.textContent = `${ownedCount} / ${total} Cards Collected (${pct}%)`;
 }
+
+// Automatically clear gallery if search query is emptied while no set is selected
+searchInput.addEventListener('input', () => {
+  if (searchInput.value.trim() === '' && !setSelect.value) {
+    gallery.innerHTML = '';
+    progressBar.style.width = '0%';
+    progressText.textContent = '0 / 0 Cards Collected (0%)';
+    statusMsg.textContent = 'Select a set or type a Pokémon name.';
+  } else {
+    renderGallery();
+  }
+});
 
 // Event Listeners
 setSelect.addEventListener('change', renderGallery);
