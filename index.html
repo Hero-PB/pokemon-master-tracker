@@ -175,7 +175,7 @@
       transform: translateY(-4px);
     }
 
-    /* OWNED / COLLECTED: Full Color + Green Border Glow */
+    /* OWNED / COLLECTED */
     .card-item.owned {
       border-color: #10b981;
       background-color: #122820;
@@ -186,7 +186,7 @@
       opacity: 1;
     }
 
-    /* MISSING / UNCOLLECTED: Darkened & Grayscale Silhouette */
+    /* MISSING / UNCOLLECTED */
     .card-item.missing {
       border-color: #2b303d;
       background-color: #14171f;
@@ -198,7 +198,6 @@
       transition: filter 0.3s ease, opacity 0.3s ease;
     }
 
-    /* Hover effect to peek at missing card art */
     .card-item.missing:hover img {
       filter: grayscale(40%) brightness(75%);
       opacity: 0.85;
@@ -211,16 +210,148 @@
       display: block;
     }
 
-    /* 3D Scene Container */
-    #three-container {
+    /* 3D Scene Container & Controls */
+    #three-wrapper {
+      position: relative;
       display: none;
       width: 100%;
-      height: 600px;
-      background-color: #0e1015;
+      height: 620px;
       border-radius: 12px;
       overflow: hidden;
       border: 1px solid #2b303d;
+      background-color: #0e1015;
+    }
+
+    #three-container {
+      width: 100%;
+      height: 100%;
+    }
+
+    .three-toolbar {
+      position: absolute;
+      top: 15px;
+      left: 15px;
+      z-index: 10;
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn-3d-tool {
+      background-color: rgba(26, 29, 38, 0.85);
+      backdrop-filter: blur(4px);
+      border: 1px solid #3b4050;
+      color: #f0f4f8;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-3d-tool.active {
+      background-color: #2563eb;
+      border-color: #3b82f6;
+      color: #fff;
+    }
+
+    /* Card Details Legend Modal */
+    #card-detail-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background-color: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(6px);
+      z-index: 999;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-content {
+      background-color: #1a1d26;
+      border: 1px solid #3b4050;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 480px;
+      width: 90%;
       position: relative;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #2b303d;
+      padding-bottom: 10px;
+    }
+
+    .modal-header h2 {
+      font-size: 1.3rem;
+      color: #fff;
+    }
+
+    .btn-close-modal {
+      background: transparent;
+      border: none;
+      color: #9ba1b0;
+      font-size: 1.5rem;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0 5px;
+    }
+
+    .btn-close-modal:hover {
+      color: #fff;
+    }
+
+    .modal-body {
+      display: flex;
+      gap: 18px;
+    }
+
+    .modal-card-img {
+      width: 150px;
+      border-radius: 8px;
+      border: 1px solid #3b4050;
+      object-fit: contain;
+    }
+
+    .modal-details {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 0.9rem;
+      justify-content: center;
+    }
+
+    .modal-row {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .modal-label {
+      font-size: 0.75rem;
+      color: #9ba1b0;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .modal-value {
+      font-weight: 600;
+      color: #f0f4f8;
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 10px;
     }
   </style>
 </head>
@@ -262,8 +393,48 @@
     <!-- 2D Card Grid -->
     <div id="card-gallery" class="gallery-grid"></div>
 
-    <!-- 3D Scene Viewport -->
-    <div id="three-container"></div>
+    <!-- 3D Scene Viewport Wrapper -->
+    <div id="three-wrapper">
+      <div class="three-toolbar">
+        <button id="btn-lock-camera" class="btn-3d-tool active">🔒 Lock Plane: On</button>
+        <button id="btn-reset-view" class="btn-3d-tool">🎯 Reset View</button>
+      </div>
+      <div id="three-container"></div>
+    </div>
+  </div>
+
+  <!-- Card Details Information Legend Modal -->
+  <div id="card-detail-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modal-card-name">Card Details</h2>
+        <button class="btn-close-modal" id="btn-modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <img id="modal-card-img" class="modal-card-img" src="" alt="Card Artwork">
+        <div class="modal-details">
+          <div class="modal-row">
+            <span class="modal-label">Set Name</span>
+            <span class="modal-value" id="modal-set-name">-</span>
+          </div>
+          <div class="modal-row">
+            <span class="modal-label">Card Number</span>
+            <span class="modal-value" id="modal-card-number">-</span>
+          </div>
+          <div class="modal-row">
+            <span class="modal-label">Database ID</span>
+            <span class="modal-value" id="modal-card-id">-</span>
+          </div>
+          <div class="modal-row">
+            <span class="modal-label">Status</span>
+            <span class="modal-value" id="modal-status">-</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-modal-toggle-own" style="width: 100%; padding: 10px;">Toggle Owned</button>
+      </div>
+    </div>
   </div>
 
   <!-- Dexie.js for IndexedDB Caching -->
@@ -273,8 +444,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
-  <!-- Application Logic (Fresh Cache Parameter) -->
-  <script src="app-v2.js?v=coverflow_ui_fixed"></script>
+  <!-- Application Logic -->
+  <script src="app-v2.js?v=carousel_details_v3"></script>
 
 </body>
 </html>

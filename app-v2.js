@@ -6,7 +6,6 @@ db.version(3).stores({
   collection: 'cardId, collectedAt'
 });
 
-// Self-contained fallback image
 const FALLBACK_CARD_IMAGE = "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='210' viewBox='0 0 150 210'%3E%3Crect width='150' height='210' rx='8' fill='%231f2430' stroke='%233b4050' stroke-width='2'/%3E%3Ctext x='50%25' y='50%25' fill='%239ba1b0' font-family='sans-serif' font-size='13' font-weight='bold' text-anchor='middle' dy='.3em'%3ENo Card Image%3C/text%3E%3C/svg%3E";
 
 // --- 2. DOM ELEMENTS ---
@@ -19,18 +18,36 @@ const progressBar = document.getElementById('progress-bar');
 const progressText = document.getElementById('progress-text');
 const statusMsg = document.getElementById('status-msg');
 
+const threeWrapper = document.getElementById('three-wrapper');
 const threeContainer = document.getElementById('three-container');
 const btnView2D = document.getElementById('btn-view-2d');
 const btnView3D = document.getElementById('btn-view-3d');
+const btnLockCamera = document.getElementById('btn-lock-camera');
+const btnResetView = document.getElementById('btn-reset-view');
+
+// Modal Elements
+const cardDetailModal = document.getElementById('card-detail-modal');
+const btnModalClose = document.getElementById('btn-modal-close');
+const modalCardName = document.getElementById('modal-card-name');
+const modalCardImg = document.getElementById('modal-card-img');
+const modalSetName = document.getElementById('modal-set-name');
+const modalCardNumber = document.getElementById('modal-card-number');
+const modalCardId = document.getElementById('modal-card-id');
+const modalStatus = document.getElementById('modal-status');
+const btnModalToggleOwn = document.getElementById('btn-modal-toggle-own');
+
+let activeModalCard = null;
 
 // --- 3. GLOBAL APP STATE & 3D VARIABLES ---
 let currentViewMode = '2D'; // '2D' or '3D'
 let scene, camera, renderer, controls;
 let cardMeshes = [];
-let carouselGroup = null; // Container group to spin the ring
+let carouselGroup = null;
 let currentTargetRotation = 0;
 let carouselRadius = 8;
 let currentCardsList = [];
+let isCameraLocked = true;
+let currentFocusedIndex = -1;
 
 // Helper API Fetcher
 async function apiFetch(endpoint) {
@@ -115,7 +132,7 @@ btnSync.addEventListener('click', async () => {
   }
 });
 
-// Helper to update progress bar without re-rendering the whole page
+// Helper: Progress Stats
 async function updateProgressStats(totalCardsInSearch, displayableCount) {
   const ownedCollection = await db.collection.toArray();
   const ownedSet = new Set(ownedCollection.map(i => i.cardId));
@@ -220,13 +237,12 @@ async function renderGallery() {
     return isOwned || showMissing;
   });
 
-  // Update initial progress stats
   updateProgressStats(cards.length, displayableCards.length);
 
   // --- 3D MODE ---
   if (currentViewMode === '3D') {
     render3DCarousel(displayableCards, ownedMap);
-    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D Carousel (Use mouse wheel to spin).`;
+    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D (Scroll to spin, click focused card for Details).`;
     return;
   }
 
@@ -247,7 +263,6 @@ async function renderGallery() {
       </div>
     `;
 
-    // IN-PLACE TOGGLE (No page jumping!)
     cardEl.addEventListener('click', async () => {
       const nowOwned = cardEl.classList.contains('owned');
       if (nowOwned) {
@@ -288,10 +303,10 @@ function init3DScene() {
   renderer.setPixelRatio(window.devicePixelRatio);
   threeContainer.appendChild(renderer.domElement);
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.95);
   scene.add(ambientLight);
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
   dirLight.position.set(5, 12, 10);
   scene.add(dirLight);
 
@@ -299,13 +314,50 @@ function init3DScene() {
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
 
-  // Smooth rotation animation loop
+  applyCameraLock();
+
+  // Animation Loop with smooth rotation & focus pop-out
   function animate() {
     requestAnimationFrame(animate);
     if (currentViewMode === '3D' && renderer) {
       if (carouselGroup) {
-        carouselGroup.rotation.y += (currentTargetRotation - carouselGroup.rotation.y) * 0.1;
+        // Smooth rotation easing
+        carouselGroup.rotation.y += (currentTargetRotation - carouselGroup.rotation.y) * 0.12;
+
+        // Dynamic Focus Detection & Pop-out calculation
+        const twoPi = Math.PI * 2;
+        let bestDistance = Infinity;
+        let activeIdx = -1;
+
+        cardMeshes.forEach((mesh, index) => {
+          // Calculate global angle relative to camera front (Z+)
+          const globalAngle = (mesh.userData.baseAngle + carouselGroup.rotation.y) % twoPi;
+          let normalizedAngle = Math.atan2(Math.sin(globalAngle), Math.cos(globalAngle)); // [-PI, PI]
+
+          const dist = Math.abs(normalizedAngle);
+          if (dist < bestDistance) {
+            bestDistance = dist;
+            activeIdx = index;
+          }
+
+          // Pull card out forward and enlarge if close to center front
+          const isCenter = dist < 0.22;
+          const targetScale = isCenter ? 1.25 : 1.0;
+          const targetPull = isCenter ? 1.4 : 0.0; // Push forward along its local Z normal
+
+          // Smoothly interpolate scale
+          mesh.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), 0.15);
+
+          // Smoothly interpolate pull position
+          const currentBaseRadius = carouselRadius + targetPull;
+          const angle = mesh.userData.baseAngle;
+          mesh.position.x = Math.sin(angle) * currentBaseRadius;
+          mesh.position.z = Math.cos(angle) * currentBaseRadius;
+        });
+
+        currentFocusedIndex = activeIdx;
       }
+
       controls.update();
       renderer.render(scene, camera);
     }
@@ -320,14 +372,29 @@ function init3DScene() {
   });
 }
 
+function applyCameraLock() {
+  if (!controls) return;
+  if (isCameraLocked) {
+    // Lock to horizontal plane looking at center
+    controls.minPolarAngle = Math.PI / 2;
+    controls.maxPolarAngle = Math.PI / 2;
+    camera.position.set(0, 0, carouselRadius + 7.5);
+    controls.target.set(0, 0, 0);
+  } else {
+    // Allow free 3D rotation
+    controls.minPolarAngle = 0.1;
+    controls.maxPolarAngle = Math.PI - 0.1;
+  }
+}
+
 function render3DCarousel(cards, ownedMap = new Map()) {
   init3DScene();
 
-  // Clear existing meshes
   cardMeshes.forEach(mesh => carouselGroup.remove(mesh));
   cardMeshes = [];
   currentTargetRotation = 0;
   carouselGroup.rotation.y = 0;
+  currentFocusedIndex = -1;
 
   if (!cards || cards.length === 0) return;
 
@@ -335,8 +402,7 @@ function render3DCarousel(cards, ownedMap = new Map()) {
   const cardGeometry = new THREE.PlaneGeometry(2.5, 3.5);
 
   const count = cards.length;
-  // Calculate dynamic radius based on card count so spacing is always even
-  const cardWidthWithGap = 3.2;
+  const cardWidthWithGap = 3.3;
   carouselRadius = Math.max(5.5, (count * cardWidthWithGap) / (2 * Math.PI));
   const angleStep = (2 * Math.PI) / count;
 
@@ -353,26 +419,29 @@ function render3DCarousel(cards, ownedMap = new Map()) {
     });
 
     const mesh = new THREE.Mesh(cardGeometry, material);
-    mesh.userData = { index: index, id: card.id, angle: index * angleStep };
-
     const angle = index * angleStep;
+
+    mesh.userData = { 
+      index: index, 
+      id: card.id, 
+      baseAngle: angle,
+      cardData: card
+    };
+
     mesh.position.x = Math.sin(angle) * carouselRadius;
     mesh.position.z = Math.cos(angle) * carouselRadius;
     mesh.position.y = 0;
 
-    // Face outward from center
     mesh.rotation.y = angle;
 
     carouselGroup.add(mesh);
     cardMeshes.push(mesh);
   });
 
-  // Position camera just outside the ring looking at the front card
-  camera.position.set(0, 0, carouselRadius + 7.5);
-  controls.target.set(0, 0, 0);
+  applyCameraLock();
 }
 
-// Wheel listener to roll the circular carousel
+// Wheel listener to roll the carousel smoothly
 threeContainer.addEventListener('wheel', (e) => {
   if (currentViewMode !== '3D' || cardMeshes.length === 0) return;
   e.preventDefault();
@@ -385,7 +454,7 @@ threeContainer.addEventListener('wheel', (e) => {
   }
 }, { passive: false });
 
-// Click on 3D card to toggle collection status in 3D
+// Raycaster for 3D clicks: Rotate side cards OR Open details legend on focused card
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
@@ -401,29 +470,97 @@ threeContainer.addEventListener('click', async (e) => {
 
   if (intersects.length > 0) {
     const clickedMesh = intersects[0].object;
-    const cardId = clickedMesh.userData.id;
-    
-    // Rotate clicked card to the front
-    const targetAngle = -clickedMesh.userData.angle;
-    // Find closest rotation offset
-    const currentRot = carouselGroup.rotation.y;
-    const diff = (targetAngle - currentRot) % (2 * Math.PI);
-    currentTargetRotation = currentRot + diff;
+    const clickedIndex = clickedMesh.userData.index;
 
-    // Toggle ownership in IndexedDB
-    const isOwned = await db.collection.get(cardId);
-    if (isOwned) {
-      await db.collection.delete(cardId);
-      clickedMesh.material.color.setHex(0x282828);
-    } else {
-      await db.collection.put({ cardId: cardId, collectedAt: new Date().toISOString() });
-      clickedMesh.material.color.setHex(0xffffff);
+    // IF CLICKED ON THE FOCUSED (CENTER) CARD: Open Information Legend Modal!
+    if (clickedIndex === currentFocusedIndex) {
+      openCardDetailsModal(clickedMesh.userData.cardData, clickedMesh);
+    } 
+    // IF CLICKED ON A SIDE CARD: Spin it into focus front & center!
+    else {
+      const targetAngle = -clickedMesh.userData.baseAngle;
+      const currentRot = carouselGroup.rotation.y;
+      const diff = Math.atan2(Math.sin(targetAngle - currentRot), Math.cos(targetAngle - currentRot));
+      currentTargetRotation = currentRot + diff;
     }
-    updateProgressStats();
   }
 });
 
-// --- 8. UI LISTENERS & SWITCHERS ---
+// --- 8. CARD DETAIL MODAL / INFORMATION LEGEND ---
+async function openCardDetailsModal(card, meshRef) {
+  activeModalCard = card;
+  const isOwned = await db.collection.get(card.id);
+
+  modalCardName.textContent = card.name;
+  modalCardImg.src = card.image;
+  modalSetName.textContent = card.set?.name || 'Unknown Set';
+  modalCardNumber.textContent = `#${card.number}`;
+  modalCardId.textContent = card.id;
+
+  updateModalOwnershipUI(Boolean(isOwned));
+
+  btnModalToggleOwn.onclick = async () => {
+    const currentlyOwned = Boolean(await db.collection.get(card.id));
+    if (currentlyOwned) {
+      await db.collection.delete(card.id);
+      if (meshRef) meshRef.material.color.setHex(0x282828);
+      updateModalOwnershipUI(false);
+    } else {
+      await db.collection.put({ cardId: card.id, collectedAt: new Date().toISOString() });
+      if (meshRef) meshRef.material.color.setHex(0xffffff);
+      updateModalOwnershipUI(true);
+    }
+    updateProgressStats();
+  };
+
+  cardDetailModal.style.display = 'flex';
+}
+
+function updateModalOwnershipUI(isOwned) {
+  if (isOwned) {
+    modalStatus.textContent = 'Collected (In Master Set)';
+    modalStatus.style.color = '#10b981';
+    btnModalToggleOwn.textContent = 'Mark as Missing';
+    btnModalToggleOwn.style.backgroundColor = '#ef4444';
+  } else {
+    modalStatus.textContent = 'Missing';
+    modalStatus.style.color = '#9ba1b0';
+    btnModalToggleOwn.textContent = 'Mark as Collected';
+    btnModalToggleOwn.style.backgroundColor = '#10b981';
+  }
+}
+
+btnModalClose.addEventListener('click', () => {
+  cardDetailModal.style.display = 'none';
+});
+
+window.addEventListener('click', (e) => {
+  if (e.target === cardDetailModal) {
+    cardDetailModal.style.display = 'none';
+  }
+});
+
+// --- 9. UI LISTENERS & TOOLBAR ---
+btnLockCamera.addEventListener('click', () => {
+  isCameraLocked = !isCameraLocked;
+  if (isCameraLocked) {
+    btnLockCamera.classList.add('active');
+    btnLockCamera.textContent = '🔒 Lock Plane: On';
+  } else {
+    btnLockCamera.classList.remove('active');
+    btnLockCamera.textContent = '🔓 Lock Plane: Off';
+  }
+  applyCameraLock();
+});
+
+btnResetView.addEventListener('click', () => {
+  if (camera && controls) {
+    camera.position.set(0, 0, carouselRadius + 7.5);
+    controls.target.set(0, 0, 0);
+    currentTargetRotation = 0;
+  }
+});
+
 setSelect.addEventListener('change', renderGallery);
 
 searchInput.addEventListener('input', () => {
@@ -445,7 +582,7 @@ btnView2D.addEventListener('click', () => {
   btnView2D.classList.add('active');
   btnView3D.classList.remove('active');
   gallery.style.display = 'grid';
-  threeContainer.style.display = 'none';
+  threeWrapper.style.display = 'none';
   renderGallery();
 });
 
@@ -454,9 +591,9 @@ btnView3D.addEventListener('click', () => {
   btnView3D.classList.add('active');
   btnView2D.classList.remove('active');
   gallery.style.display = 'none';
-  threeContainer.style.display = 'block';
+  threeWrapper.style.display = 'block';
   renderGallery();
 });
 
-// App Boot Sequence
+// App Boot
 loadSets();
