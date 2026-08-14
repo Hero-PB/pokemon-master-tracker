@@ -133,38 +133,45 @@ async function renderGallery() {
 
   let cards = [];
 
-  // 1. SEARCH MODE: Search globally across TCGdex / local DB
+  // 1. GLOBAL SEARCH MODE
   if (searchQuery && !setId) {
-    statusMsg.textContent = `Searching for "${searchQuery}"...`;
+    statusMsg.textContent = `Searching TCGdex for "${searchQuery}"...`;
     
-    // Check local database first
-    cards = await db.cards.where('name').startsWithIgnoreCase(searchQuery).toArray();
+    try {
+      // Query TCGdex API directly for global search
+      const apiResults = await apiFetch(`/cards?name=${encodeURIComponent(searchQuery)}`);
+      
+      // Ensure we only keep cards that actually match the search term
+      const matchedCards = apiResults.filter(c => 
+        c.name && c.name.toLowerCase().includes(searchQuery)
+      );
 
-    // If local database has no matches, fetch directly from TCGdex
-    if (cards.length === 0 && searchQuery.length >= 3) {
-      try {
-        const apiResults = await apiFetch(`/cards?name=${encodeURIComponent(searchQuery)}`);
-        
-        cards = apiResults.map(c => {
-          const extractedNumber = c.localId || (c.id ? c.id.split('-').pop() : '0');
-          return {
-            id: c.id,
-            name: c.name,
-            number: String(extractedNumber).trim(),
-            image: c.image ? `${c.image}/low.webp` : 'https://via.placeholder.com/150',
-            set: { id: c.id.split('-')[0], name: c.id.split('-')[0].toUpperCase() }
-          };
-        });
+      cards = matchedCards.map(c => {
+        // Extract set prefix (e.g. "base1" from "base1-43")
+        const idParts = c.id ? c.id.split('-') : ['unknown', '0'];
+        const setCode = idParts[0].toUpperCase();
+        const cardNumber = idParts.length > 1 ? idParts[1] : (c.localId || '0');
 
-        if (cards.length > 0) {
-          await db.cards.bulkPut(cards);
-        }
-      } catch (err) {
-        console.error('API Search Error:', err);
+        return {
+          id: c.id,
+          name: c.name,
+          number: String(cardNumber).trim(),
+          image: c.image ? `${c.image}/low.webp` : 'https://via.placeholder.com/150',
+          set: { id: idParts[0], name: setCode }
+        };
+      });
+
+      // Save to Dexie for offline persistence
+      if (cards.length > 0) {
+        await db.cards.bulkPut(cards);
       }
+    } catch (err) {
+      console.error('API Search Error:', err);
+      // Fallback to local database search if offline
+      cards = await db.cards.where('name').startsWithIgnoreCase(searchQuery).toArray();
     }
   } 
-  // 2. SET MODE: Selected a specific set
+  // 2. SINGLE SET MODE
   else if (setId) {
     cards = await db.cards.where('set.id').equals(setId).toArray();
     if (searchQuery) {
@@ -174,6 +181,7 @@ async function renderGallery() {
 
   // --- NATURAL SORTING ---
   cards.sort((a, b) => {
+    // Group by Set first if searching across multiple sets
     if (!setId && a.set?.id !== b.set?.id) {
       return String(a.set?.id).localeCompare(String(b.set?.id));
     }
@@ -191,22 +199,21 @@ async function renderGallery() {
     return numA.localeCompare(numB, undefined, { numeric: true, sensitivity: 'base' });
   });
 
-  // Pull collection data
+  // Pull collection checkboxes
   const ownedCollection = await db.collection.toArray();
   const ownedMap = new Map(ownedCollection.map(i => [i.cardId, i]));
 
-  // Filter visible cards based on "Show Missing" checkbox
-  const visibleCards = cards.filter(card => {
-    const isOwned = ownedMap.has(card.id);
-    return isOwned || showMissing;
-  });
-
   let ownedCount = 0;
+  let renderedCount = 0;
 
-  // Render only the visible cards
-  visibleCards.forEach(card => {
+  // Render cards
+  cards.forEach(card => {
     const isOwned = ownedMap.has(card.id);
     if (isOwned) ownedCount++;
+
+    if (!isOwned && !showMissing) return;
+
+    renderedCount++;
 
     const cardEl = document.createElement('div');
     cardEl.className = `card-item ${isOwned ? 'owned' : 'missing'}`;
@@ -232,14 +239,13 @@ async function renderGallery() {
     gallery.appendChild(cardEl);
   });
 
-  // --- ACCURATE COUNT CALCULATION ---
-  const total = cards.length; // Total Slowbro cards existing in query
-  const displayTotal = visibleCards.length; // Cards currently rendered
+  // Accurate Progress Calculation
+  const total = cards.length;
   const pct = total > 0 ? Math.round((ownedCount / total) * 100) : 0;
 
   progressBar.style.width = `${pct}%`;
-  progressText.textContent = `${ownedCount} / ${total} Slowbro Cards Collected (${pct}%)`;
-  statusMsg.textContent = `Showing ${displayTotal} of ${total} total cards.`;
+  progressText.textContent = `${ownedCount} / ${total} Cards Collected (${pct}%)`;
+  statusMsg.textContent = `Displaying ${renderedCount} of ${total} total cards.`;
 }
 
 // Automatically clear gallery if search query is emptied while no set is selected
