@@ -295,45 +295,75 @@ function init3DScene() {
   });
 }
 
+// --- 3D COVER FLOW / CAROUSEL ENGINE ---
+let carouselIndex = 0; // Active card focus index
+let activeCards = [];
+
 function render3DCarousel(cards) {
   init3DScene();
 
+  activeCards = cards || [];
+  
+  // Clear existing card meshes
   cardMeshes.forEach(mesh => scene.remove(mesh));
   cardMeshes = [];
 
-  if (!cards || cards.length === 0) return;
+  if (!activeCards || activeCards.length === 0) return;
 
   const textureLoader = new THREE.TextureLoader();
-  const cardGeometry = new THREE.PlaneGeometry(2.5, 3.5);
+  const cardGeometry = new THREE.PlaneGeometry(2.5, 3.5); // Card Aspect Ratio
 
-  const radius = Math.max(8, cards.length * 0.35);
-  const angleStep = (Math.PI * 1.2) / Math.max(cards.length, 1);
-  const startAngle = -((cards.length - 1) * angleStep) / 2;
-
-  cards.forEach((card, index) => {
+  activeCards.forEach((card, index) => {
     const texture = textureLoader.load(card.image);
     const material = new THREE.MeshStandardMaterial({
       map: texture,
       side: THREE.DoubleSide,
-      roughness: 0.3,
+      roughness: 0.2,
       metalness: 0.1
     });
 
     const mesh = new THREE.Mesh(cardGeometry, material);
-
-    const angle = startAngle + index * angleStep;
-    mesh.position.x = Math.sin(angle) * radius;
-    mesh.position.z = Math.cos(angle) * radius - radius;
-    mesh.position.y = 0;
-
-    mesh.rotation.y = angle;
+    mesh.userData = { index: index }; // Attach index for clicking
 
     scene.add(mesh);
     cardMeshes.push(mesh);
   });
 
-  camera.position.set(0, 0, 12);
-  controls.target.set(0, 0, 0);
+  // Clamp index if out of range
+  if (carouselIndex >= activeCards.length) carouselIndex = Math.max(0, activeCards.length - 1);
+
+  updateCarouselPositions();
+}
+
+// Position cards dynamically based on current focused index
+function updateCarouselPositions() {
+  const spacing = 1.8; // Distance between side cards
+  const depthOffset = 2.5; // How far back side cards recede
+  const rotationAngle = 0.6; // Angle of side cards in radians (~35 degrees)
+
+  cardMeshes.forEach((mesh, index) => {
+    const offset = index - carouselIndex;
+
+    if (offset === 0) {
+      // Center Focused Card
+      mesh.position.set(0, 0, 2); // Pops out toward camera
+      mesh.rotation.y = 0;
+    } else if (offset > 0) {
+      // Cards to the Right
+      mesh.position.set(offset * spacing + 1.2, 0, -offset * 0.8 - depthOffset);
+      mesh.rotation.y = -rotationAngle;
+    } else {
+      // Cards to the Left
+      mesh.position.set(offset * spacing - 1.2, 0, offset * 0.8 - depthOffset);
+      mesh.rotation.y = rotationAngle;
+    }
+  });
+
+  // Keep camera locked in front
+  if (camera && controls) {
+    camera.position.set(0, 0, 10);
+    controls.target.set(0, 0, 0);
+  }
 }
 
 // --- 8. UI LISTENERS & SWITCHERS ---
@@ -348,6 +378,49 @@ searchInput.addEventListener('input', () => {
     if (currentViewMode === '3D') render3DCarousel([]);
   } else {
     renderGallery();
+  }
+});
+
+// Roll through carousel using mouse scroll / trackpad
+threeContainer.addEventListener('wheel', (e) => {
+  if (currentViewMode !== '3D' || cardMeshes.length === 0) return;
+  e.preventDefault();
+
+  if (e.deltaY > 0) {
+    // Scroll Down -> Next Card
+    if (carouselIndex < cardMeshes.length - 1) {
+      carouselIndex++;
+      updateCarouselPositions();
+    }
+  } else {
+    // Scroll Up -> Previous Card
+    if (carouselIndex > 0) {
+      carouselIndex--;
+      updateCarouselPositions();
+    }
+  }
+}, { passive: false });
+
+// Click on side cards to bring them to focus
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+threeContainer.addEventListener('click', (e) => {
+  if (currentViewMode !== '3D' || cardMeshes.length === 0) return;
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(cardMeshes);
+
+  if (intersects.length > 0) {
+    const clickedIndex = intersects[0].object.userData.index;
+    if (clickedIndex !== undefined && clickedIndex !== carouselIndex) {
+      carouselIndex = clickedIndex;
+      updateCarouselPositions();
+    }
   }
 });
 
