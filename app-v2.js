@@ -8,18 +8,18 @@ db.version(3).stores({
 
 const FALLBACK_CARD_IMAGE = "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='210' viewBox='0 0 150 210'%3E%3Crect width='150' height='210' rx='8' fill='%231f2430' stroke='%233b4050' stroke-width='2'/%3E%3Ctext x='50%25' y='50%25' fill='%239ba1b0' font-family='sans-serif' font-size='13' font-weight='bold' text-anchor='middle' dy='.3em'%3ENo Card Image%3C/text%3E%3C/svg%3E";
 
-// Top 10 Popular Pokémon List for Center Showcase
+// Top 10 Popular Pokémon List (Halved Sizes)
 const POPULAR_POKEMON_LIST = [
-  { name: 'Pikachu', id: 25, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png', scaleMultiplier: 1.4 },
-  { name: 'Charizard', id: 6, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png', scaleMultiplier: 1.9 },
-  { name: 'Mewtwo', id: 150, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/150.png', scaleMultiplier: 1.8 },
-  { name: 'Gengar', id: 94, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/94.png', scaleMultiplier: 1.6 },
-  { name: 'Lucario', id: 448, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/448.png', scaleMultiplier: 1.7 },
-  { name: 'Eevee', id: 133, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/133.png', scaleMultiplier: 1.3 },
-  { name: 'Rayquaza', id: 384, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/384.png', scaleMultiplier: 2.1 },
-  { name: 'Greninja', id: 658, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/658.png', scaleMultiplier: 1.7 },
-  { name: 'Garchomp', id: 445, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/445.png', scaleMultiplier: 1.9 },
-  { name: 'Snorlax', id: 143, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/143.png', scaleMultiplier: 1.8 }
+  { name: 'Pikachu', id: 25, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png', scaleMultiplier: 0.75 },
+  { name: 'Charizard', id: 6, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png', scaleMultiplier: 1.05 },
+  { name: 'Mewtwo', id: 150, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/150.png', scaleMultiplier: 0.95 },
+  { name: 'Gengar', id: 94, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/94.png', scaleMultiplier: 0.85 },
+  { name: 'Lucario', id: 448, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/448.png', scaleMultiplier: 0.90 },
+  { name: 'Eevee', id: 133, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/133.png', scaleMultiplier: 0.70 },
+  { name: 'Rayquaza', id: 384, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/384.png', scaleMultiplier: 1.15 },
+  { name: 'Greninja', id: 658, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/658.png', scaleMultiplier: 0.90 },
+  { name: 'Garchomp', id: 445, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/445.png', scaleMultiplier: 1.00 },
+  { name: 'Snorlax', id: 143, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/143.png', scaleMultiplier: 0.95 }
 ];
 
 // --- 2. DOM ELEMENTS ---
@@ -279,7 +279,7 @@ async function renderGallery() {
   // --- 3D MODE ---
   if (currentViewMode === '3D') {
     render3DCarousel(displayableCards, ownedMap);
-    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D (Toggle Auto-Showcase for wide view).`;
+    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D (Toggle Auto-Showcase for 30° arena overview).`;
     return;
   }
 
@@ -387,7 +387,7 @@ function init3DScene() {
   renderer.setPixelRatio(window.devicePixelRatio);
   threeContainer.appendChild(renderer.domElement);
 
-  const ambientLight = new THREE.AmbientLight(0xdbeafe, 1.2);
+  const ambientLight = new THREE.AmbientLight(0xdbeafe, 1.25);
   scene.add(ambientLight);
 
   const stadiumLight1 = new THREE.DirectionalLight(0xfff0b3, 1.3);
@@ -538,10 +538,11 @@ function init3DScene() {
 function initCenterPokeballSpawner() {
   spawnerGroup = new THREE.Group();
   scene.add(spawnerGroup);
-  spawnerGroup.position.set(0, -1.0, 0);
+  spawnerGroup.position.set(0, -1.2, 0);
   spawnerGroup.visible = false;
 
-  const ballRadius = Math.max(2.4, carouselRadius * 0.18);
+  // Proportional Pokéball size (Halved)
+  const ballRadius = Math.max(1.3, carouselRadius * 0.11);
   
   // Top Red Half
   const topGeo = new THREE.SphereGeometry(ballRadius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
@@ -569,8 +570,8 @@ function initCenterPokeballSpawner() {
   pokeballButton.position.set(0, 0, ballRadius * 0.96);
   spawnerGroup.add(pokeballButton);
 
-  // Light Particles for Summoning Burst (180 Particles)
-  const pCount = 180;
+  // Light Particles for Summoning Burst (150 Particles)
+  const pCount = 150;
   const summonGeo = new THREE.BufferGeometry();
   const summonPos = new Float32Array(pCount * 3);
   summonParticleVelocities = [];
@@ -580,22 +581,22 @@ function initCenterPokeballSpawner() {
     summonPos[i * 3 + 1] = 0;
     summonPos[i * 3 + 2] = 0;
     summonParticleVelocities.push({
-      vx: (Math.random() - 0.5) * (carouselRadius * 0.08),
-      vy: Math.random() * (carouselRadius * 0.09) + 0.2,
-      vz: (Math.random() - 0.5) * (carouselRadius * 0.08)
+      vx: (Math.random() - 0.5) * (carouselRadius * 0.05),
+      vy: Math.random() * (carouselRadius * 0.06) + 0.15,
+      vz: (Math.random() - 0.5) * (carouselRadius * 0.05)
     });
   }
 
   summonGeo.setAttribute('position', new THREE.BufferAttribute(summonPos, 3));
   const summonMat = new THREE.PointsMaterial({
     color: 0x38bdf8,
-    size: 0.6,
+    size: 0.5,
     transparent: true,
     opacity: 0,
     blending: THREE.AdditiveBlending
   });
   summonParticlesMesh = new THREE.Points(summonGeo, summonMat);
-  summonParticlesMesh.position.set(0, 0.5, 0);
+  summonParticlesMesh.position.set(0, 0.4, 0);
   spawnerGroup.add(summonParticlesMesh);
 
   loadPokemonShowcaseSprite(POPULAR_POKEMON_LIST[currentPokemonIndex]);
@@ -609,8 +610,8 @@ function loadPokemonShowcaseSprite(pokemon) {
   const textureLoader = new THREE.TextureLoader();
   const spriteTexture = textureLoader.load(pokemon.sprite);
   
-  // Scale Pokémon so their outer edges fill the inner stadium diameter (~1.8x carouselRadius)
-  const dynamicSize = carouselRadius * (pokemon.scaleMultiplier || 1.6);
+  // Halved Size: Spans ~0.85x to 1.1x of radius
+  const dynamicSize = carouselRadius * (pokemon.scaleMultiplier || 0.9);
 
   const planeGeo = new THREE.PlaneGeometry(dynamicSize, dynamicSize);
   const planeMat = new THREE.MeshBasicMaterial({
@@ -642,13 +643,13 @@ function animatePokeballSpawner() {
       pos[i * 3 + 1] += v.vy;
       pos[i * 3 + 2] += v.vz;
 
-      v.vx += (Math.random() - 0.5) * 0.03;
-      v.vz += (Math.random() - 0.5) * 0.03;
+      v.vx += (Math.random() - 0.5) * 0.02;
+      v.vz += (Math.random() - 0.5) * 0.02;
     }
     summonParticlesMesh.geometry.attributes.position.needsUpdate = true;
   }
 
-  const liftHeight = Math.max(2.0, carouselRadius * 0.25);
+  const liftHeight = Math.max(1.2, carouselRadius * 0.15);
 
   switch (spawnPhase) {
     case 'ENTER_BALL':
@@ -675,8 +676,8 @@ function animatePokeballSpawner() {
       break;
 
     case 'OPEN_BALL':
-      pokeballTopHalf.position.y = Math.min(liftHeight, pokeballTopHalf.position.y + 0.12);
-      pokeballTopHalf.rotation.x = -Math.min(1.2, pokeballTopHalf.position.y * 0.8);
+      pokeballTopHalf.position.y = Math.min(liftHeight, pokeballTopHalf.position.y + 0.08);
+      pokeballTopHalf.rotation.x = -Math.min(1.2, pokeballTopHalf.position.y * 0.9);
 
       if (currentPokemonMesh) {
         currentPokemonMesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.06);
@@ -690,13 +691,13 @@ function animatePokeballSpawner() {
 
     case 'POKEMON_OUT':
       summonParticlesMesh.material.opacity = Math.max(0, summonParticlesMesh.material.opacity - 0.04);
-      pokeballTopHalf.position.y = Math.max(0, pokeballTopHalf.position.y - 0.08);
-      pokeballTopHalf.rotation.x = Math.max(0, pokeballTopHalf.rotation.x - 0.08);
+      pokeballTopHalf.position.y = Math.max(0, pokeballTopHalf.position.y - 0.06);
+      pokeballTopHalf.rotation.x = Math.max(0, pokeballTopHalf.rotation.x - 0.06);
 
       if (currentPokemonMesh) {
-        const dynamicSize = carouselRadius * (POPULAR_POKEMON_LIST[currentPokemonIndex].scaleMultiplier || 1.6);
+        const dynamicSize = carouselRadius * (POPULAR_POKEMON_LIST[currentPokemonIndex].scaleMultiplier || 0.9);
         const baseH = dynamicSize * 0.52;
-        currentPokemonMesh.position.y = baseH + Math.sin(spawnTimer * 2.2) * (carouselRadius * 0.03);
+        currentPokemonMesh.position.y = baseH + Math.sin(spawnTimer * 2.2) * (carouselRadius * 0.02);
       }
 
       if (spawnTimer > 6.0) {
@@ -707,7 +708,7 @@ function animatePokeballSpawner() {
       break;
 
     case 'RETURN_BALL':
-      pokeballTopHalf.position.y = Math.min(liftHeight, pokeballTopHalf.position.y + 0.12);
+      pokeballTopHalf.position.y = Math.min(liftHeight, pokeballTopHalf.position.y + 0.08);
 
       if (currentPokemonMesh) {
         currentPokemonMesh.scale.lerp(new THREE.Vector3(0, 0, 0), 0.12);
@@ -733,31 +734,36 @@ function applyViewMode() {
   if (!controls || !camera) return;
 
   if (isShowcaseAutoMode) {
-    // --- FULL ARENA SHOWCASE OVERVIEW (Pulled Farther Back) ---
+    // --- 30° ELEVATION FULL STADIUM SHOWCASE OVERVIEW ---
     controls.enabled = true;
     controls.enableRotate = true;
     controls.enableZoom = true;
 
     if (spawnerGroup) spawnerGroup.visible = true;
 
-    // Pull camera back so entire ring of cards & huge center Pokémon fit comfortably
-    const showcaseZ = carouselRadius * 4.8 + 35;
-    const showcaseY = carouselRadius * 2.8 + 18;
+    // True 30-degree trigonometric pitch angle (sin(30°)=0.5, cos(30°)=0.866)
+    const viewDistance = carouselRadius * 3.2 + 12;
+    const camY = viewDistance * 0.50; // Sin(30°)
+    const camZ = viewDistance * 0.866; // Cos(30°)
     
-    camera.position.set(0, showcaseY, showcaseZ);
-    camera.lookAt(0, carouselRadius * 0.4, 0);
-    controls.target.set(0, carouselRadius * 0.4, 0);
+    // Offset target forward so the front cards are fully within the bottom viewport
+    const targetZ = -carouselRadius * 0.15;
+    const targetY = carouselRadius * 0.25;
+
+    camera.position.set(0, camY, camZ);
+    camera.lookAt(0, targetY, targetZ);
+    controls.target.set(0, targetY, targetZ);
 
   } else {
-    // --- NORMAL LOCKED-PLANE / CARD ROLLING VIEW ---
+    // --- NORMAL LOCKED FRONT-ROW VIEW ---
     if (spawnerGroup) {
       spawnerGroup.visible = false;
       if (currentPokemonMesh) currentPokemonMesh.scale.set(0, 0, 0);
     }
 
     if (isCameraLocked) {
-      controls.enabled = false; // Freeze mouse tilt so front card stays perfectly in plane
-      camera.position.set(0, 0, carouselRadius + 11.5); // Front-row eye level at Y=0
+      controls.enabled = false;
+      camera.position.set(0, 0, carouselRadius + 11.5);
       camera.lookAt(0, 0, 0);
       controls.target.set(0, 0, 0);
     } else {
@@ -792,7 +798,6 @@ function render3DCarousel(cards, ownedMap = new Map()) {
     arenaFloorMesh.scale.set(floorScale, floorScale, 1);
   }
 
-  // Update center spawner scale to match current set radius
   if (spawnerGroup) {
     loadPokemonShowcaseSprite(POPULAR_POKEMON_LIST[currentPokemonIndex]);
   }
