@@ -1,13 +1,12 @@
 // --- 1. INITIALIZE DEXIE DATABASE ---
 const db = new Dexie('PokemonMasterTrackerDB');
-
 db.version(3).stores({
   sets: 'id, name, cardCount',
-  cards: 'id, name, number, set.id',  // <-- removed brackets here
+  cards: 'id, name, number, set.id',
   collection: 'cardId, collectedAt'
 });
 
-// Self-contained fallback image (no network requests, no ERR_CONNECTION_CLOSED)
+// Self-contained fallback image
 const FALLBACK_CARD_IMAGE = "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='210' viewBox='0 0 150 210'%3E%3Crect width='150' height='210' rx='8' fill='%231f2430' stroke='%233b4050' stroke-width='2'/%3E%3Ctext x='50%25' y='50%25' fill='%239ba1b0' font-family='sans-serif' font-size='13' font-weight='bold' text-anchor='middle' dy='.3em'%3ENo Card Image%3C/text%3E%3C/svg%3E";
 
 // --- 2. DOM ELEMENTS ---
@@ -28,6 +27,10 @@ const btnView3D = document.getElementById('btn-view-3d');
 let currentViewMode = '2D'; // '2D' or '3D'
 let scene, camera, renderer, controls;
 let cardMeshes = [];
+let carouselGroup = null; // Container group to spin the ring
+let currentTargetRotation = 0;
+let carouselRadius = 8;
+let currentCardsList = [];
 
 // Helper API Fetcher
 async function apiFetch(endpoint) {
@@ -112,6 +115,23 @@ btnSync.addEventListener('click', async () => {
   }
 });
 
+// Helper to update progress bar without re-rendering the whole page
+async function updateProgressStats(totalCardsInSearch, displayableCount) {
+  const ownedCollection = await db.collection.toArray();
+  const ownedSet = new Set(ownedCollection.map(i => i.cardId));
+
+  let ownedCount = 0;
+  currentCardsList.forEach(c => {
+    if (ownedSet.has(c.id)) ownedCount++;
+  });
+
+  const total = totalCardsInSearch || currentCardsList.length;
+  const pct = total > 0 ? Math.round((ownedCount / total) * 100) : 0;
+
+  progressBar.style.width = `${pct}%`;
+  progressText.textContent = `${ownedCount} / ${total} Cards Collected (${pct}%)`;
+}
+
 // --- 6. RENDER CARD GALLERY (2D / 3D SWITCH) ---
 async function renderGallery() {
   const setId = setSelect.value;
@@ -124,7 +144,7 @@ async function renderGallery() {
     statusMsg.textContent = 'Select a set or type a Pokémon name to search across all sets.';
     progressBar.style.width = '0%';
     progressText.textContent = '0 / 0 Cards Collected (0%)';
-    if (currentViewMode === '3D') render3DCarousel([]);
+    if (currentViewMode === '3D') render3DCarousel([], new Map());
     return;
   }
 
@@ -190,6 +210,8 @@ async function renderGallery() {
     return numA.localeCompare(numB, undefined, { numeric: true, sensitivity: 'base' });
   });
 
+  currentCardsList = cards;
+
   const ownedCollection = await db.collection.toArray();
   const ownedMap = new Map(ownedCollection.map(i => [i.cardId, i]));
 
@@ -198,33 +220,23 @@ async function renderGallery() {
     return isOwned || showMissing;
   });
 
-  let ownedCount = 0;
+  // Update initial progress stats
+  updateProgressStats(cards.length, displayableCards.length);
 
-// --- 3D MODE ---
+  // --- 3D MODE ---
   if (currentViewMode === '3D') {
-    // 1. Pass ownedMap into render3DCarousel so the 3D scene knows which cards are owned
     render3DCarousel(displayableCards, ownedMap);
-    
-    // 2. Count owned cards
-    ownedCount = 0;
-    cards.forEach(c => { if (ownedMap.has(c.id)) ownedCount++; });
-
-    const totalCardsInSearch = cards.length;
-    const pct = totalCardsInSearch > 0 ? Math.round((ownedCount / totalCardsInSearch) * 100) : 0;
-    
-    progressBar.style.width = `${pct}%`;
-    progressText.textContent = `${ownedCount} / ${displayableCards.length} Cards in 3D View (${pct}%)`;
-    statusMsg.textContent = `Rendering ${displayableCards.length} cards in 3D Carousel mode.`;
+    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D Carousel (Use mouse wheel to spin).`;
     return;
   }
 
   // --- 2D MODE ---
   displayableCards.forEach(card => {
     const isOwned = ownedMap.has(card.id);
-    if (isOwned) ownedCount++;
 
     const cardEl = document.createElement('div');
     cardEl.className = `card-item ${isOwned ? 'owned' : 'missing'}`;
+    cardEl.dataset.cardId = card.id;
 
     const setLabel = !setId && card.set?.name ? `[${card.set.name}] ` : '';
 
@@ -235,37 +247,41 @@ async function renderGallery() {
       </div>
     `;
 
+    // IN-PLACE TOGGLE (No page jumping!)
     cardEl.addEventListener('click', async () => {
-      if (isOwned) {
+      const nowOwned = cardEl.classList.contains('owned');
+      if (nowOwned) {
         await db.collection.delete(card.id);
+        cardEl.classList.remove('owned');
+        cardEl.classList.add('missing');
+        if (!showMissing) cardEl.remove();
       } else {
         await db.collection.put({ cardId: card.id, collectedAt: new Date().toISOString() });
+        cardEl.classList.remove('missing');
+        cardEl.classList.add('owned');
       }
-      renderGallery();
+      updateProgressStats(cards.length, displayableCards.length);
     });
 
     gallery.appendChild(cardEl);
   });
 
-  const totalCardsInSearch = cards.length;
-  const renderedCount = displayableCards.length;
-  const pct = totalCardsInSearch > 0 ? Math.round((ownedCount / totalCardsInSearch) * 100) : 0;
-
-  progressBar.style.width = `${pct}%`;
-  progressText.textContent = `${ownedCount} / ${renderedCount} Cards Collected (${pct}%)`;
-  statusMsg.textContent = `Displaying ${renderedCount} matching cards.`;
+  statusMsg.textContent = `Displaying ${displayableCards.length} cards.`;
 }
 
-// --- 7. THREE.JS 3D ENGINE ---
+// --- 7. THREE.JS 3D CIRCULAR CAROUSEL ENGINE ---
 function init3DScene() {
   if (scene) return;
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0e1015);
 
+  carouselGroup = new THREE.Group();
+  scene.add(carouselGroup);
+
   const aspect = threeContainer.clientWidth / threeContainer.clientHeight || 1;
   camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
-  camera.position.set(0, 0, 12);
+  camera.position.set(0, 0, 15);
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
@@ -275,17 +291,21 @@ function init3DScene() {
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
   scene.add(ambientLight);
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
-  dirLight.position.set(5, 10, 7);
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
+  dirLight.position.set(5, 12, 10);
   scene.add(dirLight);
 
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
 
+  // Smooth rotation animation loop
   function animate() {
     requestAnimationFrame(animate);
     if (currentViewMode === '3D' && renderer) {
+      if (carouselGroup) {
+        carouselGroup.rotation.y += (currentTargetRotation - carouselGroup.rotation.y) * 0.1;
+      }
       controls.update();
       renderer.render(scene, camera);
     }
@@ -300,119 +320,76 @@ function init3DScene() {
   });
 }
 
-// --- 3D COVER FLOW / CAROUSEL ENGINE ---
-let carouselIndex = 0; // Active card focus index
-let activeCards = [];
-
 function render3DCarousel(cards, ownedMap = new Map()) {
   init3DScene();
 
-  activeCards = cards || [];
-  
-  cardMeshes.forEach(mesh => scene.remove(mesh));
+  // Clear existing meshes
+  cardMeshes.forEach(mesh => carouselGroup.remove(mesh));
   cardMeshes = [];
+  currentTargetRotation = 0;
+  carouselGroup.rotation.y = 0;
 
-  if (!activeCards || activeCards.length === 0) return;
+  if (!cards || cards.length === 0) return;
 
   const textureLoader = new THREE.TextureLoader();
   const cardGeometry = new THREE.PlaneGeometry(2.5, 3.5);
 
-  activeCards.forEach((card, index) => {
+  const count = cards.length;
+  // Calculate dynamic radius based on card count so spacing is always even
+  const cardWidthWithGap = 3.2;
+  carouselRadius = Math.max(5.5, (count * cardWidthWithGap) / (2 * Math.PI));
+  const angleStep = (2 * Math.PI) / count;
+
+  cards.forEach((card, index) => {
     const isOwned = ownedMap.has(card.id);
     const texture = textureLoader.load(card.image);
 
-    // Apply bright full-color if owned, dark shadow/grayscale tint if missing
     const material = new THREE.MeshStandardMaterial({
       map: texture,
       side: THREE.DoubleSide,
       roughness: 0.3,
       metalness: 0.1,
-      color: isOwned ? new THREE.Color(0xffffff) : new THREE.Color(0x222222)
+      color: isOwned ? new THREE.Color(0xffffff) : new THREE.Color(0x282828)
     });
 
     const mesh = new THREE.Mesh(cardGeometry, material);
-    mesh.userData = { index: index, id: card.id };
+    mesh.userData = { index: index, id: card.id, angle: index * angleStep };
 
-    scene.add(mesh);
+    const angle = index * angleStep;
+    mesh.position.x = Math.sin(angle) * carouselRadius;
+    mesh.position.z = Math.cos(angle) * carouselRadius;
+    mesh.position.y = 0;
+
+    // Face outward from center
+    mesh.rotation.y = angle;
+
+    carouselGroup.add(mesh);
     cardMeshes.push(mesh);
   });
 
-  if (carouselIndex >= activeCards.length) carouselIndex = Math.max(0, activeCards.length - 1);
-
-  updateCarouselPositions();
+  // Position camera just outside the ring looking at the front card
+  camera.position.set(0, 0, carouselRadius + 7.5);
+  controls.target.set(0, 0, 0);
 }
 
-// Position cards dynamically based on current focused index
-function updateCarouselPositions() {
-  const spacing = 1.8; // Distance between side cards
-  const depthOffset = 2.5; // How far back side cards recede
-  const rotationAngle = 0.6; // Angle of side cards in radians (~35 degrees)
-
-  cardMeshes.forEach((mesh, index) => {
-    const offset = index - carouselIndex;
-
-    if (offset === 0) {
-      // Center Focused Card
-      mesh.position.set(0, 0, 2); // Pops out toward camera
-      mesh.rotation.y = 0;
-    } else if (offset > 0) {
-      // Cards to the Right
-      mesh.position.set(offset * spacing + 1.2, 0, -offset * 0.8 - depthOffset);
-      mesh.rotation.y = -rotationAngle;
-    } else {
-      // Cards to the Left
-      mesh.position.set(offset * spacing - 1.2, 0, offset * 0.8 - depthOffset);
-      mesh.rotation.y = rotationAngle;
-    }
-  });
-
-  // Keep camera locked in front
-  if (camera && controls) {
-    camera.position.set(0, 0, 10);
-    controls.target.set(0, 0, 0);
-  }
-}
-
-// --- 8. UI LISTENERS & SWITCHERS ---
-setSelect.addEventListener('change', renderGallery);
-
-searchInput.addEventListener('input', () => {
-  if (searchInput.value.trim() === '' && !setSelect.value) {
-    gallery.innerHTML = '';
-    progressBar.style.width = '0%';
-    progressText.textContent = '0 / 0 Cards Collected (0%)';
-    statusMsg.textContent = 'Select a set or type a Pokémon name.';
-    if (currentViewMode === '3D') render3DCarousel([]);
-  } else {
-    renderGallery();
-  }
-});
-
-// Roll through carousel using mouse scroll / trackpad
+// Wheel listener to roll the circular carousel
 threeContainer.addEventListener('wheel', (e) => {
   if (currentViewMode !== '3D' || cardMeshes.length === 0) return;
   e.preventDefault();
 
+  const angleStep = (2 * Math.PI) / cardMeshes.length;
   if (e.deltaY > 0) {
-    // Scroll Down -> Next Card
-    if (carouselIndex < cardMeshes.length - 1) {
-      carouselIndex++;
-      updateCarouselPositions();
-    }
+    currentTargetRotation -= angleStep;
   } else {
-    // Scroll Up -> Previous Card
-    if (carouselIndex > 0) {
-      carouselIndex--;
-      updateCarouselPositions();
-    }
+    currentTargetRotation += angleStep;
   }
 }, { passive: false });
 
-// Click on side cards to bring them to focus
+// Click on 3D card to toggle collection status in 3D
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
-threeContainer.addEventListener('click', (e) => {
+threeContainer.addEventListener('click', async (e) => {
   if (currentViewMode !== '3D' || cardMeshes.length === 0) return;
 
   const rect = renderer.domElement.getBoundingClientRect();
@@ -423,11 +400,41 @@ threeContainer.addEventListener('click', (e) => {
   const intersects = raycaster.intersectObjects(cardMeshes);
 
   if (intersects.length > 0) {
-    const clickedIndex = intersects[0].object.userData.index;
-    if (clickedIndex !== undefined && clickedIndex !== carouselIndex) {
-      carouselIndex = clickedIndex;
-      updateCarouselPositions();
+    const clickedMesh = intersects[0].object;
+    const cardId = clickedMesh.userData.id;
+    
+    // Rotate clicked card to the front
+    const targetAngle = -clickedMesh.userData.angle;
+    // Find closest rotation offset
+    const currentRot = carouselGroup.rotation.y;
+    const diff = (targetAngle - currentRot) % (2 * Math.PI);
+    currentTargetRotation = currentRot + diff;
+
+    // Toggle ownership in IndexedDB
+    const isOwned = await db.collection.get(cardId);
+    if (isOwned) {
+      await db.collection.delete(cardId);
+      clickedMesh.material.color.setHex(0x282828);
+    } else {
+      await db.collection.put({ cardId: cardId, collectedAt: new Date().toISOString() });
+      clickedMesh.material.color.setHex(0xffffff);
     }
+    updateProgressStats();
+  }
+});
+
+// --- 8. UI LISTENERS & SWITCHERS ---
+setSelect.addEventListener('change', renderGallery);
+
+searchInput.addEventListener('input', () => {
+  if (searchInput.value.trim() === '' && !setSelect.value) {
+    gallery.innerHTML = '';
+    progressBar.style.width = '0%';
+    progressText.textContent = '0 / 0 Cards Collected (0%)';
+    statusMsg.textContent = 'Select a set or type a Pokémon name.';
+    if (currentViewMode === '3D') render3DCarousel([], new Map());
+  } else {
+    renderGallery();
   }
 });
 
