@@ -8,6 +8,20 @@ db.version(3).stores({
 
 const FALLBACK_CARD_IMAGE = "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='210' viewBox='0 0 150 210'%3E%3Crect width='150' height='210' rx='8' fill='%231f2430' stroke='%233b4050' stroke-width='2'/%3E%3Ctext x='50%25' y='50%25' fill='%239ba1b0' font-family='sans-serif' font-size='13' font-weight='bold' text-anchor='middle' dy='.3em'%3ENo Card Image%3C/text%3E%3C/svg%3E";
 
+// Top 10 Popular Pokémon List for Center Pokéball Showcase
+const POPULAR_POKEMON_LIST = [
+  { name: 'Pikachu', id: 25, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png', scale: 3.2 },
+  { name: 'Charizard', id: 6, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png', scale: 4.5 },
+  { name: 'Mewtwo', id: 150, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/150.png', scale: 4.4 },
+  { name: 'Gengar', id: 94, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/94.png', scale: 3.8 },
+  { name: 'Lucario', id: 448, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/448.png', scale: 4.0 },
+  { name: 'Eevee', id: 133, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/133.png', scale: 3.0 },
+  { name: 'Rayquaza', id: 384, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/384.png', scale: 5.2 },
+  { name: 'Greninja', id: 658, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/658.png', scale: 4.2 },
+  { name: 'Garchomp', id: 445, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/445.png', scale: 4.6 },
+  { name: 'Snorlax', id: 143, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/143.png', scale: 4.6 }
+];
+
 // --- 2. DOM ELEMENTS ---
 const setSelect = document.getElementById('set-select');
 const searchInput = document.getElementById('search-input');
@@ -22,7 +36,7 @@ const threeWrapper = document.getElementById('three-wrapper');
 const threeContainer = document.getElementById('three-container');
 const btnView2D = document.getElementById('btn-view-2d');
 const btnView3D = document.getElementById('btn-view-3d');
-const btnLockCamera = document.getElementById('btn-lock-camera');
+const btnShowcaseMode = document.getElementById('btn-showcase-mode');
 const btnResetView = document.getElementById('btn-reset-view');
 
 const hudCardBadge = document.getElementById('hud-card-badge');
@@ -42,19 +56,32 @@ const btnModalToggleOwn = document.getElementById('btn-modal-toggle-own');
 let activeModalCard = null;
 
 // --- 3. GLOBAL APP STATE & 3D VARIABLES ---
-let currentViewMode = '2D'; // '2D' or '3D'
+let currentViewMode = '2D';
 let scene, camera, renderer, controls;
 let cardMeshes = [];
 let carouselGroup = null;
 let currentTargetRotation = 0;
 let carouselRadius = 8;
 let currentCardsList = [];
-let isCameraLocked = true;
+let isShowcaseAutoMode = false; // Auto-scrolls and zooms out to show full set & arena
 let currentFocusedIndex = 0;
 
 // Arena Environment Elements
 let arenaFloorMesh = null;
 let particlesMesh = null;
+
+// 3D Pokéball Spawner Group & State
+let spawnerGroup = null;
+let pokeballTopHalf = null;
+let pokeballBottomHalf = null;
+let pokeballBand = null;
+let pokeballButton = null;
+let energyBeamMesh = null;
+let currentPokemonMesh = null;
+
+let spawnPhase = 'ENTER_BALL'; // 'ENTER_BALL', 'SHAKE', 'OPEN_BALL', 'POKEMON_OUT', 'RETURN_BALL'
+let spawnTimer = 0;
+let currentPokemonIndex = 0;
 
 // Helper API Fetcher
 async function apiFetch(endpoint) {
@@ -249,7 +276,7 @@ async function renderGallery() {
   // --- 3D MODE ---
   if (currentViewMode === '3D') {
     render3DCarousel(displayableCards, ownedMap);
-    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D (Scroll/Swipe to spin, tap focused card for Details).`;
+    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D (Toggle Auto-Showcase for automatic tour).`;
     return;
   }
 
@@ -403,18 +430,23 @@ function init3DScene() {
   particlesMesh = new THREE.Points(particleGeo, particleMat);
   scene.add(particlesMesh);
 
+  // 3. Construct 3D Animated Center Pokéball
+  initCenterPokeballSpawner();
+
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
   controls.minDistance = 3;
-  controls.maxDistance = 60;
+  controls.maxDistance = 80;
 
-  applyCameraLock();
+  updateCameraPosition();
 
+  // Master Animation Loop
   function animate() {
     requestAnimationFrame(animate);
     if (currentViewMode === '3D' && renderer) {
 
+      // Sparkles Drift
       if (particlesMesh) {
         const positions = particlesMesh.geometry.attributes.position.array;
         for (let i = 1; i < positions.length; i += 3) {
@@ -425,6 +457,15 @@ function init3DScene() {
         particlesMesh.rotation.y += 0.0005;
       }
 
+      // Auto-Showcase continuous slow rotation
+      if (isShowcaseAutoMode && carouselGroup) {
+        currentTargetRotation -= 0.0025; // Gentle cinematic speed
+      }
+
+      // Update Center Pokémon Spawner Cycle
+      animatePokeballSpawner();
+
+      // Card Carousel Rotation & Active Card Detection
       if (carouselGroup && cardMeshes.length > 0) {
         carouselGroup.rotation.y += (currentTargetRotation - carouselGroup.rotation.y) * 0.12;
 
@@ -453,11 +494,12 @@ function init3DScene() {
           }
         }
 
+        // Pull forward when focused (toned down in showcase mode so full arena is visible)
         cardMeshes.forEach((mesh, index) => {
           const isTheFocusedCard = (index === activeIdx);
 
-          const targetScale = isTheFocusedCard ? 1.25 : 1.0;
-          const pullDistance = isTheFocusedCard ? 1.6 : 0.0;
+          const targetScale = isShowcaseAutoMode ? 1.05 : (isTheFocusedCard ? 1.25 : 1.0);
+          const pullDistance = isShowcaseAutoMode ? 0.4 : (isTheFocusedCard ? 1.6 : 0.0);
 
           mesh.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), 0.15);
 
@@ -472,9 +514,7 @@ function init3DScene() {
         });
       }
 
-      if (!isCameraLocked) {
-        controls.update();
-      }
+      controls.update();
       renderer.render(scene, camera);
     }
   }
@@ -488,21 +528,192 @@ function init3DScene() {
   });
 }
 
-function applyCameraLock() {
+// --- 3D POKÉBALL SPAWNER SYSTEM ---
+function initCenterPokeballSpawner() {
+  spawnerGroup = new THREE.Group();
+  scene.add(spawnerGroup);
+  spawnerGroup.position.set(0, -1.2, 0);
+
+  const ballRadius = 0.9;
+  
+  // Top Red Half
+  const topGeo = new THREE.SphereGeometry(ballRadius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+  const redMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.3, metalness: 0.2 });
+  pokeballTopHalf = new THREE.Mesh(topGeo, redMat);
+  spawnerGroup.add(pokeballTopHalf);
+
+  // Bottom White Half
+  const botGeo = new THREE.SphereGeometry(ballRadius, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+  const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.3, metalness: 0.2 });
+  pokeballBottomHalf = new THREE.Mesh(botGeo, whiteMat);
+  spawnerGroup.add(pokeballBottomHalf);
+
+  // Black Dividing Ring
+  const bandGeo = new THREE.CylinderGeometry(ballRadius * 1.01, ballRadius * 1.01, 0.08, 32);
+  const blackMat = new THREE.MeshBasicMaterial({ color: 0x0f172a });
+  pokeballBand = new THREE.Mesh(bandGeo, blackMat);
+  spawnerGroup.add(pokeballBand);
+
+  // Center Button
+  const btnGeo = new THREE.CylinderGeometry(0.26, 0.26, 0.1, 24);
+  btnGeo.rotateX(Math.PI / 2);
+  const btnMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
+  pokeballButton = new THREE.Mesh(btnGeo, btnMat);
+  pokeballButton.position.set(0, 0, ballRadius * 0.96);
+  spawnerGroup.add(pokeballButton);
+
+  // Cyan Energy Beam
+  const beamGeo = new THREE.CylinderGeometry(0.1, 1.2, 3.5, 16, 1, true);
+  const beamMat = new THREE.MeshBasicMaterial({
+    color: 0x38bdf8,
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide
+  });
+  energyBeamMesh = new THREE.Mesh(beamGeo, beamMat);
+  energyBeamMesh.position.set(0, 1.6, 0);
+  spawnerGroup.add(energyBeamMesh);
+
+  // Load Initial Pokémon Sprite Plane
+  loadPokemonShowcaseSprite(POPULAR_POKEMON_LIST[currentPokemonIndex]);
+}
+
+function loadPokemonShowcaseSprite(pokemon) {
+  if (currentPokemonMesh) {
+    spawnerGroup.remove(currentPokemonMesh);
+  }
+
+  const textureLoader = new THREE.TextureLoader();
+  const spriteTexture = textureLoader.load(pokemon.sprite);
+  
+  const planeGeo = new THREE.PlaneGeometry(pokemon.scale, pokemon.scale);
+  const planeMat = new THREE.MeshBasicMaterial({
+    map: spriteTexture,
+    transparent: true,
+    side: THREE.DoubleSide
+  });
+
+  currentPokemonMesh = new THREE.Mesh(planeGeo, planeMat);
+  currentPokemonMesh.position.set(0, 1.8, 0);
+  currentPokemonMesh.scale.set(0, 0, 0);
+  spawnerGroup.add(currentPokemonMesh);
+}
+
+function animatePokeballSpawner() {
+  if (!spawnerGroup) return;
+
+  spawnTimer += 0.016; // ~60fps delta
+
+  // Always face the active Pokémon plane toward the camera
+  if (currentPokemonMesh && camera) {
+    currentPokemonMesh.quaternion.copy(camera.quaternion);
+  }
+
+  // State Machine for Pokéball Spawn Cycle
+  switch (spawnPhase) {
+    case 'ENTER_BALL':
+      // Pokéball floats in and lands
+      spawnerGroup.scale.lerp(new THREE.Vector3(1, 1, 1), 0.1);
+      pokeballTopHalf.position.set(0, 0, 0);
+      pokeballTopHalf.rotation.x = 0;
+      if (spawnTimer > 1.2) {
+        spawnPhase = 'SHAKE';
+        spawnTimer = 0;
+      }
+      break;
+
+    case 'SHAKE':
+      // Pokéball wiggles left and right
+      spawnerGroup.rotation.z = Math.sin(spawnTimer * 18) * 0.25;
+      if (spawnTimer > 1.5) {
+        spawnerGroup.rotation.z = 0;
+        spawnPhase = 'OPEN_BALL';
+        spawnTimer = 0;
+      }
+      break;
+
+    case 'OPEN_BALL':
+      // Top half flips open, energy beam erupts
+      pokeballTopHalf.position.y = Math.min(0.8, pokeballTopHalf.position.y + 0.05);
+      pokeballTopHalf.rotation.x = -Math.min(0.9, pokeballTopHalf.position.y * 1.2);
+      energyBeamMesh.material.opacity = Math.min(0.8, energyBeamMesh.material.opacity + 0.08);
+
+      // Scale Pokémon out of the energy beam
+      if (currentPokemonMesh) {
+        currentPokemonMesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.08);
+      }
+
+      if (spawnTimer > 1.2) {
+        spawnPhase = 'POKEMON_OUT';
+        spawnTimer = 0;
+      }
+      break;
+
+    case 'POKEMON_OUT':
+      // Energy beam fades, Pokémon stands gently floating
+      energyBeamMesh.material.opacity = Math.max(0, energyBeamMesh.material.opacity - 0.05);
+      pokeballTopHalf.position.y = Math.max(0, pokeballTopHalf.position.y - 0.04);
+      pokeballTopHalf.rotation.x = Math.max(0, pokeballTopHalf.rotation.x - 0.05);
+
+      if (currentPokemonMesh) {
+        currentPokemonMesh.position.y = 1.8 + Math.sin(spawnTimer * 2.5) * 0.15;
+      }
+
+      // Display Pokémon for ~5 seconds
+      if (spawnTimer > 5.0) {
+        spawnPhase = 'RETURN_BALL';
+        spawnTimer = 0;
+      }
+      break;
+
+    case 'RETURN_BALL':
+      // Beam lights up and pulls Pokémon back into Pokéball
+      pokeballTopHalf.position.y = Math.min(0.8, pokeballTopHalf.position.y + 0.05);
+      energyBeamMesh.material.opacity = Math.min(0.8, energyBeamMesh.material.opacity + 0.08);
+
+      if (currentPokemonMesh) {
+        currentPokemonMesh.scale.lerp(new THREE.Vector3(0, 0, 0), 0.12);
+      }
+
+      if (spawnTimer > 1.2) {
+        // Close ball & switch to next Pokémon
+        spawnerGroup.scale.set(0, 0, 0);
+        energyBeamMesh.material.opacity = 0;
+        pokeballTopHalf.position.set(0, 0, 0);
+        pokeballTopHalf.rotation.x = 0;
+
+        currentPokemonIndex = (currentPokemonIndex + 1) % POPULAR_POKEMON_LIST.length;
+        loadPokemonShowcaseSprite(POPULAR_POKEMON_LIST[currentPokemonIndex]);
+
+        spawnPhase = 'ENTER_BALL';
+        spawnTimer = 0;
+      }
+      break;
+  }
+}
+
+function updateCameraPosition() {
   if (!controls || !camera) return;
 
-  if (isCameraLocked) {
-    controls.enabled = false; // Disable orbit dragging to keep horizontal plane strictly locked
-    camera.position.set(0, 0, carouselRadius + 11.5);
-    camera.lookAt(0, 0, 0);
-    controls.target.set(0, 0, 0);
-  } else {
-    // Plane Lock OFF: Enable free 3D Orbit & full pinch/mouse zoom
+  if (isShowcaseAutoMode) {
+    // Zoomed out elevated stadium view showing full collection ring & arena floor
     controls.enabled = true;
     controls.enableRotate = true;
     controls.enableZoom = true;
-    controls.minPolarAngle = 0.1;
-    controls.maxPolarAngle = Math.PI - 0.1;
+    
+    const showcaseDist = carouselRadius * 2.1 + 10;
+    camera.position.set(0, carouselRadius * 0.85 + 4, showcaseDist);
+    camera.lookAt(0, 0.5, 0);
+    controls.target.set(0, 0.5, 0);
+  } else {
+    // Normal Focused View
+    controls.enabled = true;
+    controls.enableRotate = true;
+    controls.enableZoom = true;
+    
+    camera.position.set(0, 0, carouselRadius + 11.5);
+    camera.lookAt(0, 0, 0);
+    controls.target.set(0, 0, 0);
   }
 }
 
@@ -562,7 +773,7 @@ function render3DCarousel(cards, ownedMap = new Map()) {
     cardMeshes.push(mesh);
   });
 
-  applyCameraLock();
+  updateCameraPosition();
 }
 
 // Mouse Wheel: Roll through cards (Shift + Wheel to zoom distance)
@@ -572,7 +783,7 @@ threeContainer.addEventListener('wheel', (e) => {
 
   if (e.shiftKey) {
     camera.position.z += e.deltaY * 0.01;
-    camera.position.z = Math.max(carouselRadius + 3, Math.min(carouselRadius + 30, camera.position.z));
+    camera.position.z = Math.max(carouselRadius + 3, Math.min(carouselRadius + 50, camera.position.z));
     return;
   }
 
@@ -584,7 +795,7 @@ threeContainer.addEventListener('wheel', (e) => {
   }
 }, { passive: false });
 
-// Mobile Touch Handlers (50% Slower Swipe Sensitivity)
+// Mobile Touch Handlers (Smooth 50% Slower Swipe)
 let touchStartX = 0;
 let touchStartY = 0;
 let touchLastX = 0;
@@ -593,9 +804,8 @@ let touchMoved = false;
 
 threeContainer.addEventListener('touchstart', (e) => {
   if (currentViewMode !== '3D' || cardMeshes.length === 0) return;
-  // If plane lock is off and user is using 2 fingers, let OrbitControls handle pinch-to-zoom
-  if (!isCameraLocked && e.touches.length > 1) {
-    isTouching = false;
+  if (e.touches.length > 1) {
+    isTouching = false; // Allow OrbitControls pinch-to-zoom
     return;
   }
   if (e.touches.length === 1) {
@@ -618,7 +828,6 @@ threeContainer.addEventListener('touchmove', (e) => {
       touchMoved = true;
     }
 
-    // 50% slower scrolling sensitivity (0.0028 vs previous 0.0055)
     const rotationSensitivity = 0.0028;
     currentTargetRotation += deltaX * rotationSensitivity;
   }
@@ -628,7 +837,7 @@ threeContainer.addEventListener('touchend', (e) => {
   if (!isTouching) return;
   isTouching = false;
 
-  if (touchMoved && cardMeshes.length > 0) {
+  if (touchMoved && cardMeshes.length > 0 && !isShowcaseAutoMode) {
     const angleStep = (2 * Math.PI) / cardMeshes.length;
     currentTargetRotation = Math.round(currentTargetRotation / angleStep) * angleStep;
   }
@@ -775,25 +984,23 @@ window.addEventListener('click', (e) => {
 });
 
 // --- 10. UI LISTENERS & TOOLBAR ---
-btnLockCamera.addEventListener('click', () => {
-  isCameraLocked = !isCameraLocked;
-  if (isCameraLocked) {
-    btnLockCamera.classList.add('active');
-    btnLockCamera.textContent = '🔒 Lock Plane: On';
+btnShowcaseMode.addEventListener('click', () => {
+  isShowcaseAutoMode = !isShowcaseAutoMode;
+  if (isShowcaseAutoMode) {
+    btnShowcaseMode.classList.add('active');
+    btnShowcaseMode.textContent = '⏸ Auto-Showcase: On';
   } else {
-    btnLockCamera.classList.remove('active');
-    btnLockCamera.textContent = '🔓 Lock Plane: Off';
+    btnShowcaseMode.classList.remove('active');
+    btnShowcaseMode.textContent = '▶ Auto-Showcase: Off';
   }
-  applyCameraLock();
+  updateCameraPosition();
 });
 
 btnResetView.addEventListener('click', () => {
-  if (camera && controls) {
-    camera.position.set(0, 0, carouselRadius + 11.5);
-    camera.lookAt(0, 0, 0);
-    controls.target.set(0, 0, 0);
-    currentTargetRotation = 0;
-  }
+  isShowcaseAutoMode = false;
+  btnShowcaseMode.classList.remove('active');
+  btnShowcaseMode.textContent = '▶ Auto-Showcase: Off';
+  updateCameraPosition();
 });
 
 setSelect.addEventListener('change', renderGallery);
