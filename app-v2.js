@@ -310,9 +310,11 @@ function init3DScene() {
   dirLight.position.set(5, 12, 10);
   scene.add(dirLight);
 
-  controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
+// --- Inside init3DScene() ---
+controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.enableZoom = false; // <-- Disables mouse wheel from changing camera distance!
 
   applyCameraLock();
 
@@ -385,19 +387,19 @@ function applyCameraLock() {
   if (!controls || !camera) return;
 
   if (isCameraLocked) {
-    // 1. Keep OrbitControls active for zooming/panning, but disable free tilt & rotation
     controls.enabled = true;
-    controls.enableRotate = false; // Prevents mouse drag from tilting/flipping the camera
-    controls.enableZoom = true;    // Allows zooming in/out freely
+    controls.enableRotate = false; // Disable orbit tilting/flipping
+    controls.enableZoom = false;   // Keep mouse wheel dedicated strictly to spinning cards
+    controls.enablePan = true;    // Allows right-click / middle-drag adjustments
 
-    // 2. Pull camera further back (+11.5 units instead of +7.5) to give plenty of margin
     camera.position.set(0, 0, carouselRadius + 11.5);
     camera.lookAt(0, 0, 0);
     controls.target.set(0, 0, 0);
   } else {
-    // Free 3D orbit
+    // Free 3D mode
     controls.enabled = true;
     controls.enableRotate = true;
+    controls.enableZoom = false; // Keep wheel dedicated to rotating carousel
     controls.minPolarAngle = 0.1;
     controls.maxPolarAngle = Math.PI - 0.1;
   }
