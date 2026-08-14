@@ -52,6 +52,10 @@ let currentCardsList = [];
 let isCameraLocked = true;
 let currentFocusedIndex = 0;
 
+// Arena Environment Elements
+let arenaFloorMesh = null;
+let particlesMesh = null;
+
 // Helper API Fetcher
 async function apiFetch(endpoint) {
   const res = await fetch(`https://api.tcgdex.net/v2/en${endpoint}`);
@@ -287,12 +291,59 @@ async function renderGallery() {
   statusMsg.textContent = `Displaying ${displayableCards.length} cards.`;
 }
 
+// --- POKÉBALL STADIUM PROCEDURAL TEXTURE GENERATOR ---
+function createPokeballTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext('2d');
+
+  const cx = 512;
+  const cy = 512;
+  const r = 500;
+
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 512, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#dc2626';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, Math.PI, 0);
+  ctx.fill();
+
+  ctx.fillStyle = '#e2e8f0';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI);
+  ctx.fill();
+
+  ctx.fillStyle = '#0b0f19';
+  ctx.fillRect(cx - r, cy - 35, r * 2, 70);
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, 140, 0, Math.PI * 2);
+  ctx.fillStyle = '#0b0f19';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, 85, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, 50, 0, Math.PI * 2);
+  ctx.fillStyle = '#38bdf8';
+  ctx.fill();
+
+  return new THREE.CanvasTexture(canvas);
+}
+
 // --- 7. THREE.JS 3D CIRCULAR CAROUSEL ENGINE ---
 function init3DScene() {
   if (scene) return;
 
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0e1015);
+  scene.background = null;
 
   carouselGroup = new THREE.Group();
   scene.add(carouselGroup);
@@ -301,37 +352,86 @@ function init3DScene() {
   camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
   camera.position.set(0, 0, 15);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
   threeContainer.appendChild(renderer.domElement);
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.95);
+  const ambientLight = new THREE.AmbientLight(0xdbeafe, 1.1);
   scene.add(ambientLight);
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-  dirLight.position.set(5, 12, 10);
-  scene.add(dirLight);
+  const stadiumLight1 = new THREE.DirectionalLight(0xfff0b3, 1.2);
+  stadiumLight1.position.set(10, 18, 15);
+  scene.add(stadiumLight1);
+
+  const stadiumLight2 = new THREE.DirectionalLight(0x38bdf8, 0.8);
+  stadiumLight2.position.set(-10, -10, -10);
+  scene.add(stadiumLight2);
+
+  // 1. Procedural Pokéball Floor
+  const pokeballTex = createPokeballTexture();
+  const floorGeo = new THREE.CircleGeometry(1, 64);
+  const floorMat = new THREE.MeshStandardMaterial({
+    map: pokeballTex,
+    roughness: 0.4,
+    metalness: 0.2,
+    side: THREE.DoubleSide
+  });
+  arenaFloorMesh = new THREE.Mesh(floorGeo, floorMat);
+  arenaFloorMesh.rotation.x = -Math.PI / 2;
+  arenaFloorMesh.position.y = -2.2;
+  scene.add(arenaFloorMesh);
+
+  // 2. Floating Energy Particles
+  const particleCount = 180;
+  const particleGeo = new THREE.BufferGeometry();
+  const particlePositions = new Float32Array(particleCount * 3);
+
+  for (let i = 0; i < particleCount * 3; i += 3) {
+    particlePositions[i] = (Math.random() - 0.5) * 50;
+    particlePositions[i + 1] = (Math.random() - 0.5) * 20;
+    particlePositions[i + 2] = (Math.random() - 0.5) * 50;
+  }
+
+  particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+  const particleMat = new THREE.PointsMaterial({
+    color: 0x38bdf8,
+    size: 0.15,
+    transparent: true,
+    opacity: 0.75
+  });
+  particlesMesh = new THREE.Points(particleGeo, particleMat);
+  scene.add(particlesMesh);
 
   controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
+  controls.minDistance = 3;
+  controls.maxDistance = 60;
 
   applyCameraLock();
 
-  // Animation Loop with smooth rotation & single focused card pull-out
   function animate() {
     requestAnimationFrame(animate);
     if (currentViewMode === '3D' && renderer) {
+
+      if (particlesMesh) {
+        const positions = particlesMesh.geometry.attributes.position.array;
+        for (let i = 1; i < positions.length; i += 3) {
+          positions[i] += 0.015;
+          if (positions[i] > 12) positions[i] = -8;
+        }
+        particlesMesh.geometry.attributes.position.needsUpdate = true;
+        particlesMesh.rotation.y += 0.0005;
+      }
+
       if (carouselGroup && cardMeshes.length > 0) {
-        // Smooth rotation easing
         carouselGroup.rotation.y += (currentTargetRotation - carouselGroup.rotation.y) * 0.12;
 
         const twoPi = Math.PI * 2;
         let minAngleDiff = Infinity;
         let activeIdx = 0;
 
-        // Pass 1: Identify single closest card to front center
         cardMeshes.forEach((mesh, index) => {
           let currentWorldAngle = (mesh.userData.baseAngle + carouselGroup.rotation.y) % twoPi;
           if (currentWorldAngle > Math.PI) currentWorldAngle -= twoPi;
@@ -346,7 +446,6 @@ function init3DScene() {
 
         currentFocusedIndex = activeIdx;
 
-        // Update the HUD Number Display in real-time
         if (cardMeshes[activeIdx] && cardMeshes[activeIdx].userData.cardData) {
           const focusedCard = cardMeshes[activeIdx].userData.cardData;
           if (hudCardBadge && hudCardBadge.style.display !== 'none') {
@@ -354,7 +453,6 @@ function init3DScene() {
           }
         }
 
-        // Pass 2: Animate only the active card forward; return others to base ring
         cardMeshes.forEach((mesh, index) => {
           const isTheFocusedCard = (index === activeIdx);
 
@@ -394,14 +492,15 @@ function applyCameraLock() {
   if (!controls || !camera) return;
 
   if (isCameraLocked) {
-    controls.enabled = false; // Disable orbit dragging to prevent tilt break
+    controls.enabled = false; // Disable orbit dragging to keep horizontal plane strictly locked
     camera.position.set(0, 0, carouselRadius + 11.5);
     camera.lookAt(0, 0, 0);
     controls.target.set(0, 0, 0);
   } else {
+    // Plane Lock OFF: Enable free 3D Orbit & full pinch/mouse zoom
     controls.enabled = true;
     controls.enableRotate = true;
-    controls.enableZoom = false;
+    controls.enableZoom = true;
     controls.minPolarAngle = 0.1;
     controls.maxPolarAngle = Math.PI - 0.1;
   }
@@ -425,6 +524,11 @@ function render3DCarousel(cards, ownedMap = new Map()) {
   const cardWidthWithGap = 3.3;
   carouselRadius = Math.max(5.5, (count * cardWidthWithGap) / (2 * Math.PI));
   const angleStep = (2 * Math.PI) / count;
+
+  if (arenaFloorMesh) {
+    const floorScale = carouselRadius * 1.55;
+    arenaFloorMesh.scale.set(floorScale, floorScale, 1);
+  }
 
   cards.forEach((card, index) => {
     const isOwned = ownedMap.has(card.id);
@@ -480,7 +584,7 @@ threeContainer.addEventListener('wheel', (e) => {
   }
 }, { passive: false });
 
-// --- MOBILE TOUCH SWIPE & DRAG HANDLERS ---
+// Mobile Touch Handlers (50% Slower Swipe Sensitivity)
 let touchStartX = 0;
 let touchStartY = 0;
 let touchLastX = 0;
@@ -489,6 +593,11 @@ let touchMoved = false;
 
 threeContainer.addEventListener('touchstart', (e) => {
   if (currentViewMode !== '3D' || cardMeshes.length === 0) return;
+  // If plane lock is off and user is using 2 fingers, let OrbitControls handle pinch-to-zoom
+  if (!isCameraLocked && e.touches.length > 1) {
+    isTouching = false;
+    return;
+  }
   if (e.touches.length === 1) {
     isTouching = true;
     touchMoved = false;
@@ -509,7 +618,8 @@ threeContainer.addEventListener('touchmove', (e) => {
       touchMoved = true;
     }
 
-    const rotationSensitivity = 0.0055;
+    // 50% slower scrolling sensitivity (0.0028 vs previous 0.0055)
+    const rotationSensitivity = 0.0028;
     currentTargetRotation += deltaX * rotationSensitivity;
   }
 }, { passive: true });
