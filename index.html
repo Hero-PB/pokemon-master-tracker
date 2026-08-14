@@ -3,55 +3,259 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pokémon Master Tracker</title>
-  <link rel="stylesheet" href="styles.css">
-  
-  <!-- Dexie.js library for IndexedDB offline browser storage -->
-  <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+  <title>Pokémon Master Set Tracker</title>
+  <style>
+    /* Base Styling */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #0f1117;
+      color: #f0f4f8;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1200px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 2.2rem;
+      margin-bottom: 8px;
+      color: #ffffff;
+    }
+
+    #status-msg {
+      font-size: 0.9rem;
+      color: #9ba1b0;
+      margin-bottom: 15px;
+    }
+
+    /* Controls Bar */
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      background-color: #1a1d26;
+      padding: 15px;
+      border-radius: 8px;
+      align-items: center;
+      margin-bottom: 15px;
+      border: 1px solid #2b303d;
+    }
+
+    select, input[type="text"], button {
+      background-color: #262a36;
+      color: #ffffff;
+      border: 1px solid #3b4050;
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      outline: none;
+    }
+
+    select:focus, input[type="text"]:focus {
+      border-color: #4c82f6;
+    }
+
+    input[type="text"] {
+      flex-grow: 1;
+      min-width: 200px;
+    }
+
+    button {
+      background-color: #3b82f6;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    button:hover {
+      background-color: #2563eb;
+    }
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    /* Progress Bar */
+    .progress-container {
+      width: 100%;
+      background-color: #1a1d26;
+      border-radius: 20px;
+      height: 24px;
+      overflow: hidden;
+      margin-bottom: 15px;
+      position: relative;
+      border: 1px solid #2b303d;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #10b981, #059669);
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    .progress-text {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      font-weight: bold;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    }
+
+    /* View Switcher Controls */
+    .view-switcher {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    .btn-view {
+      padding: 8px 18px;
+      font-size: 0.9rem;
+      border-radius: 6px;
+      background-color: #1a1d26;
+      border: 1px solid #3b4050;
+      color: #9ba1b0;
+    }
+
+    .btn-view.active {
+      background-color: #2563eb;
+      color: #ffffff;
+      border-color: #3b82f6;
+    }
+
+    /* 2D Gallery Grid */
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 15px;
+      width: 100%;
+    }
+
+    .card-item {
+      background-color: #1a1d26;
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+
+    .card-item:hover {
+      transform: translateY(-4px);
+    }
+
+    .card-item.owned {
+      border-color: #10b981;
+      background-color: #122820;
+    }
+
+    .card-item.missing {
+      border-color: #3b4050;
+      opacity: 0.7;
+    }
+
+    .card-item img {
+      width: 100%;
+      height: auto;
+      border-radius: 4px;
+      display: block;
+    }
+
+    /* 3D Scene Container */
+    #three-container {
+      display: none;
+      width: 100%;
+      height: 600px;
+      background-color: #0e1015;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #2b303d;
+      position: relative;
+    }
+  </style>
 </head>
 <body>
-  <header>
-    <h1>Pokémon Master Set Tracker</h1>
-    <p id="status-msg">Database status: Idle</p>
-  </header>
 
-  <!-- Filter & Controls Section -->
-  <section id="controls">
-    <div class="control-group">
-      <label for="set-select">Select Set:</label>
+  <div class="container">
+    <header>
+      <h1>Pokémon Master Set Tracker</h1>
+      <p id="status-msg">Select a set or type a Pokémon name to get started.</p>
+    </header>
+
+    <!-- Controls Header -->
+    <div class="controls">
       <select id="set-select">
-        <option value="">-- Load Sets First --</option>
+        <option value="">-- Select a Set --</option>
       </select>
-    </div>
 
-    <div class="control-group">
-      <label for="search-input">Search Pokémon:</label>
-      <input type="text" id="search-input" placeholder="e.g. Charizard, Gengar...">
-    </div>
+      <input type="text" id="search-input" placeholder="Search Pokémon (e.g. Charizard, Gengar)...">
 
-    <div class="control-group toggles">
-      <label>
+      <label class="checkbox-group">
         <input type="checkbox" id="toggle-missing" checked> Show Missing Cards
       </label>
-      <label>
-        <input type="checkbox" id="toggle-prices"> Show Prices
-      </label>
+
+      <button id="btn-sync">Sync Set Data</button>
     </div>
 
-    <button id="btn-sync" class="btn-primary">Sync Set Data</button>
-  </section>
+    <!-- Collection Progress Bar -->
+    <div class="progress-container">
+      <div id="progress-bar" class="progress-bar"></div>
+      <div id="progress-text" class="progress-text">0 / 0 Cards Collected (0%)</div>
+    </div>
 
-  <!-- Progress Bar -->
-  <section id="progress-container">
-    <div id="progress-bar"></div>
-    <span id="progress-text">0 / 0 Cards Collected (0%)</span>
-  </section>
+    <!-- 2D vs 3D View Switcher -->
+    <div class="view-switcher">
+      <button id="btn-view-2d" class="btn-view active">2D Grid</button>
+      <button id="btn-view-3d" class="btn-view">3D Carousel</button>
+    </div>
 
-  <!-- Main 2D Card Gallery Grid -->
-  <main id="card-gallery" class="gallery-grid">
-    <!-- Card items will be rendered here dynamically -->
-  </main>
+    <!-- 2D Card Grid -->
+    <div id="card-gallery" class="gallery-grid"></div>
 
-  <script src="app-v2.js"></script>
+    <!-- 3D Scene Viewport -->
+    <div id="three-container"></div>
+  </div>
+
+  <!-- Dexie.js for IndexedDB Caching -->
+  <script src="https://unpkg.com/dexie@latest/dist/dexie.js"></script>
+
+  <!-- Three.js Engine & Controls for 3D Carousel -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+  <!-- Application Logic (Cached Version Parameter) -->
+  <script src="app-v2.js?v=3d_carousel_1"></script>
+
 </body>
 </html>

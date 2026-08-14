@@ -195,6 +195,15 @@ async function renderGallery() {
     return numA.localeCompare(numB, undefined, { numeric: true, sensitivity: 'base' });
   });
 
+  // --- NATURAL SORTING ---
+  cards.sort((a, b) => { ... });
+
+  // IF IN 3D MODE: Render 3D Carousel and stop early
+  if (currentViewMode === '3D') {
+    render3DCarousel(cards);
+    return;
+  }
+
   // Pull collection data
   const ownedCollection = await db.collection.toArray();
   const ownedMap = new Map(ownedCollection.map(i => [i.cardId, i]));
@@ -265,6 +274,130 @@ searchInput.addEventListener('input', () => {
   } else {
     renderGallery();
   }
+});
+
+
+// --- 3D THREE.JS CAROUSEL ENGINE ---
+let scene, camera, renderer, controls;
+let cardMeshes = [];
+let currentViewMode = '2D'; // '2D' or '3D'
+
+const threeContainer = document.getElementById('three-container');
+const btnView2D = document.getElementById('btn-view-2d');
+const btnView3D = document.getElementById('btn-view-3d');
+
+// Initialize 3D Environment
+function init3DScene() {
+  if (scene) return; // Only initialize once
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0e1015);
+
+  const aspect = threeContainer.clientWidth / threeContainer.clientHeight;
+  camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
+  camera.position.set(0, 0, 12);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  threeContainer.appendChild(renderer.domElement);
+
+  // Add Ambient & Directional Lighting
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+  scene.add(ambientLight);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
+  dirLight.position.set(5, 10, 7);
+  scene.add(dirLight);
+
+  // Orbit Controls (Drag to rotate, scroll to zoom)
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
+  controls.maxPolarAngle = Math.PI / 2; // Prevent flipping under ground
+
+  // Render Loop
+  function animate() {
+    requestAnimationFrame(animate);
+    if (currentViewMode === '3D') {
+      controls.update();
+      renderer.render(scene, camera);
+    }
+  }
+  animate();
+
+  // Handle Window Resize
+  window.addEventListener('resize', () => {
+    if (!renderer) return;
+    camera.aspect = threeContainer.clientWidth / threeContainer.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
+  });
+}
+
+// Render Cards in 3D Carousel Arc
+function render3DCarousel(cards) {
+  init3DScene();
+
+  // Clear existing card meshes
+  cardMeshes.forEach(mesh => scene.remove(mesh));
+  cardMeshes = [];
+
+  const textureLoader = new THREE.TextureLoader();
+  const cardGeometry = new THREE.PlaneGeometry(2.5, 3.5); // Card Aspect Ratio
+
+  const radius = Math.max(8, cards.length * 0.35); // Radius scales with card count
+  const angleStep = (Math.PI * 1.2) / Math.max(cards.length, 1);
+  const startAngle = -((cards.length - 1) * angleStep) / 2;
+
+  cards.forEach((card, index) => {
+    // Load texture dynamically
+    const texture = textureLoader.load(card.image);
+    const material = new THREE.MeshStandardMaterial({
+      map: texture,
+      side: THREE.DoubleSide,
+      roughness: 0.3,
+      metalness: 0.1
+    });
+
+    const mesh = new THREE.Mesh(cardGeometry, material);
+
+    // Calculate position along carousel arc
+    const angle = startAngle + index * angleStep;
+    mesh.position.x = Math.sin(angle) * radius;
+    mesh.position.z = Math.cos(angle) * radius - radius;
+    mesh.position.y = 0;
+
+    // Face toward camera focus
+    mesh.rotation.y = angle;
+
+    scene.add(mesh);
+    cardMeshes.push(mesh);
+  });
+
+  // Reset Camera View
+  camera.position.set(0, 0, 12);
+  controls.target.set(0, 0, 0);
+}
+
+// View Toggle Event Listeners
+btnView2D.addEventListener('click', () => {
+  currentViewMode = '2D';
+  gallery.style.display = 'grid';
+  threeContainer.style.display = 'none';
+  btnView2D.style.background = '#2b303c';
+  btnView3D.style.background = '#1a1d24';
+});
+
+btnView3D.addEventListener('click', () => {
+  currentViewMode = '3D';
+  gallery.style.display = 'none';
+  threeContainer.style.display = 'block';
+  btnView2D.style.background = '#1a1d24';
+  btnView3D.style.background = '#2b303c';
+
+  // Trigger 3D render using current set/search cards
+  renderGallery();
 });
 
 // Event Listeners
