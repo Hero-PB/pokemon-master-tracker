@@ -6,6 +6,9 @@ db.version(1).stores({
   collection: 'cardId, collectedAt'
 });
 
+// Self-contained fallback image (no network requests, no ERR_CONNECTION_CLOSED)
+const FALLBACK_CARD_IMAGE = "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='210' viewBox='0 0 150 210'%3E%3Crect width='150' height='210' rx='8' fill='%231f2430' stroke='%233b4050' stroke-width='2'/%3E%3Ctext x='50%25' y='50%25' fill='%239ba1b0' font-family='sans-serif' font-size='13' font-weight='bold' text-anchor='middle' dy='.3em'%3ENo Card Image%3C/text%3E%3C/svg%3E";
+
 // --- 2. DOM ELEMENTS ---
 const setSelect = document.getElementById('set-select');
 const searchInput = document.getElementById('search-input');
@@ -58,7 +61,6 @@ async function loadSets() {
     statusMsg.textContent = 'Sets loaded from local storage.';
   }
 
-  // Lock dropdown to clean alphabetical order
   localSets.sort((a, b) => a.name.localeCompare(b.name));
 
   const currentSelection = setSelect.value;
@@ -94,7 +96,7 @@ btnSync.addEventListener('click', async () => {
         id: c.id,
         name: c.name,
         number: String(extractedNumber).trim(),
-        image: c.image ? `${c.image}/low.webp` : 'https://via.placeholder.com/150',
+        image: c.image ? `${c.image}/low.webp` : FALLBACK_CARD_IMAGE,
         set: { id: setId, name: setDetails.name }
       };
     });
@@ -147,7 +149,7 @@ async function renderGallery() {
           id: c.id,
           name: c.name,
           number: String(cardNumber).trim(),
-          image: c.image ? `${c.image}/low.webp` : 'https://via.placeholder.com/150',
+          image: c.image ? `${c.image}/low.webp` : FALLBACK_CARD_IMAGE,
           set: { id: idParts[0], name: setCode }
         };
       });
@@ -187,7 +189,6 @@ async function renderGallery() {
     return numA.localeCompare(numB, undefined, { numeric: true, sensitivity: 'base' });
   });
 
-  // Check Collection Ownership
   const ownedCollection = await db.collection.toArray();
   const ownedMap = new Map(ownedCollection.map(i => [i.cardId, i]));
 
@@ -198,11 +199,10 @@ async function renderGallery() {
 
   let ownedCount = 0;
 
-  // --- IF IN 3D MODE: Render 3D Scene ---
+  // --- 3D MODE ---
   if (currentViewMode === '3D') {
     render3DCarousel(displayableCards);
     
-    // Update progress counters
     const totalCardsInSearch = cards.length;
     const pct = totalCardsInSearch > 0 ? Math.round((ownedCount / totalCardsInSearch) * 100) : 0;
     
@@ -213,7 +213,7 @@ async function renderGallery() {
     return;
   }
 
-  // --- IF IN 2D MODE: Render HTML Grid ---
+  // --- 2D MODE ---
   displayableCards.forEach(card => {
     const isOwned = ownedMap.has(card.id);
     if (isOwned) ownedCount++;
@@ -224,7 +224,7 @@ async function renderGallery() {
     const setLabel = !setId && card.set?.name ? `[${card.set.name}] ` : '';
 
     cardEl.innerHTML = `
-      <img src="${card.image}" alt="${card.name}" loading="lazy" onerror="this.src='https://via.placeholder.com/150';">
+      <img src="${card.image}" alt="${card.name}" loading="lazy" onerror="this.onerror=null; this.src='${FALLBACK_CARD_IMAGE}';">
       <div style="margin-top:6px; font-weight:bold; font-size:0.8rem;">
         ${card.name} (${setLabel}#${card.number})
       </div>
@@ -242,7 +242,6 @@ async function renderGallery() {
     gallery.appendChild(cardEl);
   });
 
-  // Progress Bar update
   const totalCardsInSearch = cards.length;
   const renderedCount = displayableCards.length;
   const pct = totalCardsInSearch > 0 ? Math.round((ownedCount / totalCardsInSearch) * 100) : 0;
