@@ -56,6 +56,13 @@ async function loadSets() {
     statusMsg.textContent = 'Sets loaded from local storage.';
   }
 
+  // --- ENSURE CONSISTENT DROPDOWN ORDER HERE ---
+  // Sort sets alphabetically by Name so they never jump around
+  localSets.sort((a, b) => a.name.localeCompare(b.name));
+
+  // Preserve currently selected set ID so the user's choice isn't wiped out
+  const currentSelection = setSelect.value;
+
   // Populate Set Dropdown
   setSelect.innerHTML = '<option value="">-- Select a Set --</option>';
   localSets.forEach(set => {
@@ -64,6 +71,11 @@ async function loadSets() {
     opt.textContent = `${set.name} (${set.cardCount} cards)`;
     setSelect.appendChild(opt);
   });
+
+  // Restore previous selection if it existed
+  if (currentSelection) {
+    setSelect.value = currentSelection;
+  }
 }
 
 // 4. Sync Set Cards from TCGdex
