@@ -385,14 +385,17 @@ function applyCameraLock() {
   if (!controls || !camera) return;
 
   if (isCameraLocked) {
-    // Disable orbit mouse dragging so clicking doesn't rotate the view
-    controls.enabled = false;
-    // Lock camera centered right in front of the ring
-    camera.position.set(0, 0, carouselRadius + 7.5);
+    // 1. Keep OrbitControls active for zooming/panning, but disable free tilt & rotation
+    controls.enabled = true;
+    controls.enableRotate = false; // Prevents mouse drag from tilting/flipping the camera
+    controls.enableZoom = true;    // Allows zooming in/out freely
+
+    // 2. Pull camera further back (+11.5 units instead of +7.5) to give plenty of margin
+    camera.position.set(0, 0, carouselRadius + 11.5);
     camera.lookAt(0, 0, 0);
     controls.target.set(0, 0, 0);
   } else {
-    // Allow free orbit rotation
+    // Free 3D orbit
     controls.enabled = true;
     controls.enableRotate = true;
     controls.minPolarAngle = 0.1;
@@ -568,7 +571,7 @@ btnLockCamera.addEventListener('click', () => {
 
 btnResetView.addEventListener('click', () => {
   if (camera && controls) {
-    camera.position.set(0, 0, carouselRadius + 7.5);
+    camera.position.set(0, 0, carouselRadius + 11.5);
     camera.lookAt(0, 0, 0);
     controls.target.set(0, 0, 0);
     currentTargetRotation = 0;
