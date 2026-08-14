@@ -316,7 +316,7 @@ function init3DScene() {
 
   applyCameraLock();
 
-  // Animation Loop with smooth rotation & focused card pull-out
+  // Animation Loop: STRICT SINGLE-CARD FOCUS PULL
   function animate() {
     requestAnimationFrame(animate);
     if (currentViewMode === '3D' && renderer) {
@@ -328,37 +328,41 @@ function init3DScene() {
         let minAngleDiff = Infinity;
         let activeIdx = 0;
 
-        // Loop over every card in the carousel
+        // Pass 1: Identify the SINGLE closest card to the front center
         cardMeshes.forEach((mesh, index) => {
-          // Calculate where this card is currently oriented relative to the camera front (0 radians)
           let currentWorldAngle = (mesh.userData.baseAngle + carouselGroup.rotation.y) % twoPi;
           if (currentWorldAngle > Math.PI) currentWorldAngle -= twoPi;
           if (currentWorldAngle < -Math.PI) currentWorldAngle += twoPi;
 
           const angleDist = Math.abs(currentWorldAngle);
-
-          // Find the exact closest card to the front
           if (angleDist < minAngleDiff) {
             minAngleDiff = angleDist;
             activeIdx = index;
           }
-
-          // If the card is close to the center front, pull it out and scale it up
-          const isFront = angleDist < 0.28;
-          const targetScale = isFront ? 1.35 : 1.0;
-          const pullDistance = isFront ? 1.6 : 0.0; // Pushes forward radially
-
-          // Smoothly interpolate scale
-          mesh.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), 0.15);
-
-          // Smoothly displace along its base angle
-          const currentRadius = carouselRadius + pullDistance;
-          const baseAngle = mesh.userData.baseAngle;
-          mesh.position.x = Math.sin(baseAngle) * currentRadius;
-          mesh.position.z = Math.cos(baseAngle) * currentRadius;
         });
 
         currentFocusedIndex = activeIdx;
+
+        // Pass 2: Animate ONLY the active card forward; return all other cards to the ring
+        cardMeshes.forEach((mesh, index) => {
+          const isTheFocusedCard = (index === activeIdx);
+
+          const targetScale = isTheFocusedCard ? 1.35 : 1.0;
+          const pullDistance = isTheFocusedCard ? 2.0 : 0.0; // Clean 2-unit pop toward camera
+
+          // Smooth scale transition
+          mesh.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), 0.15);
+
+          // Displace along base angle
+          const currentRadius = carouselRadius + pullDistance;
+          const baseAngle = mesh.userData.baseAngle;
+
+          const targetX = Math.sin(baseAngle) * currentRadius;
+          const targetZ = Math.cos(baseAngle) * currentRadius;
+
+          mesh.position.x += (targetX - mesh.position.x) * 0.15;
+          mesh.position.z += (targetZ - mesh.position.z) * 0.15;
+        });
       }
 
       if (!isCameraLocked) {
