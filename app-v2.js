@@ -144,7 +144,7 @@ async function loadSets() {
   }
 }
 
-// --- 5. SYNC SET DATA FROM TCGDEX (With Full Variant Details) ---
+// --- 5. UPDATED SYNC SET DATA FROM TCGDEX ---
 btnSync.addEventListener('click', async () => {
   const setId = setSelect.value;
   if (!setId) return alert('Please select a set first!');
@@ -155,6 +155,8 @@ btnSync.addEventListener('click', async () => {
     const setDetails = await apiFetch(`/sets/${setId}`);
     const rawCards = setDetails.cards || [];
 
+    statusMsg.textContent = `Saving ${rawCards.length} cards from ${setDetails.name}...`;
+
     const formattedCards = rawCards.map(c => {
       const extractedNumber = c.localId || (c.id ? c.id.split('-').pop() : '0');
 
@@ -164,12 +166,12 @@ btnSync.addEventListener('click', async () => {
         number: String(extractedNumber).trim(),
         image: c.image ? `${c.image}/low.webp` : FALLBACK_CARD_IMAGE,
         set: { id: setId, name: setDetails.name },
-        variants: c.variants || { normal: true }
+        variants: c.variants || null // Will be populated dynamically on click or deep sync
       };
     });
 
     await db.cards.bulkPut(formattedCards);
-    statusMsg.textContent = `Saved ${formattedCards.length} cards locally!`;
+    statusMsg.textContent = `Synced ${formattedCards.length} cards locally! Click any card to load its official variants.`;
 
     renderGallery();
   } catch (err) {
@@ -1040,21 +1042,59 @@ hudCardInput.addEventListener('blur', () => {
   hudCardBadge.style.display = 'block';
 });
 
-// --- 9. CARD DETAIL MODAL / DYNAMIC VARIANT LEGEND ---
+// --- 9. UPDATED CARD DETAIL MODAL WITH ON-DEMAND VARIANT FETCHING ---
 async function openCardDetailsModal(card, meshRef) {
+  activeModalCard = card;
+
   modalCardName.textContent = card.name;
   modalCardImg.src = card.image;
   modalSetName.textContent = card.set?.name || 'Unknown Set';
   modalCardNumber.textContent = `#${card.number}`;
   modalCardId.textContent = card.id;
+  modalStatus.textContent = 'Loading variants...';
+  modalVariantsList.innerHTML = '<div style="color:#9ba1b0; font-size:0.85rem; padding:10px;">Fetching variant data from TCGdex...</div>';
 
-  const availVariants = getCardAvailableVariants(card);
+  cardDetailModal.style.display = 'flex';
 
-  // Read current collected variants for this card
+  // 1. If variants are not cached locally, fetch the full card endpoint
+  let currentCardData = await db.cards.get(card.id);
+  if (!currentCardData || !currentCardData.variants) {
+    try {
+      const fullCardDetails = await apiFetch(`/cards/${card.id}`);
+      if (fullCardDetails && fullCardDetails.variants) {
+        currentCardData = {
+          ...card,
+          variants: fullCardDetails.variants,
+          rarity: fullCardDetails.rarity || card.rarity
+        };
+        await db.cards.put(currentCardData);
+      }
+    } catch (err) {
+      console.warn('Could not fetch full card details from API:', err);
+    }
+  }
+
+  // 2. Resolve available variants
+  const availVariants = getCardAvailableVariants(currentCardData || card);
+
+  // 3. Read current collected variants for this card
   const collectedRecords = await db.variantCollection.where('cardId').equals(card.id).toArray();
   const collectedVariants = new Set(collectedRecords.map(r => r.variant));
 
-  // Render Variant Buttons
+  // Legacy fallback: check old collection table if nothing in variantCollection
+  if (collectedVariants.size === 0) {
+    const isLegacyOwned = await db.collection.get(card.id);
+    if (isLegacyOwned) {
+      collectedVariants.add('normal');
+      await db.variantCollection.put({
+        cardId: card.id,
+        variant: 'normal',
+        collectedAt: new Date().toISOString()
+      });
+    }
+  }
+
+  // 4. Render Variant Buttons
   modalVariantsList.innerHTML = '';
 
   const variantDisplayNames = {
@@ -1101,7 +1141,7 @@ async function openCardDetailsModal(card, meshRef) {
   });
 
   updateModalStatusLabel(collectedVariants.size, availVariants.length);
-  cardDetailModal.style.display = 'flex';
+  updateProgressStats();
 }
 
 function updateModalStatusLabel(ownedCount, totalCount) {
