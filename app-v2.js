@@ -4,7 +4,7 @@ db.version(4).stores({
   sets: 'id, name, cardCount',
   cards: 'id, name, number, set.id',
   collection: 'cardId, collectedAt',
-  variantCollection: '[cardId+variant], cardId, variant, collectedAt' // Multi-variant tracking
+  variantCollection: '[cardId+variant], cardId, variant, collectedAt'
 });
 
 const FALLBACK_CARD_IMAGE = "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='210' viewBox='0 0 150 210'%3E%3Crect width='150' height='210' rx='8' fill='%231f2430' stroke='%233b4050' stroke-width='2'/%3E%3Ctext x='50%25' y='50%25' fill='%239ba1b0' font-family='sans-serif' font-size='13' font-weight='bold' text-anchor='middle' dy='.3em'%3ENo Card Image%3C/text%3E%3C/svg%3E";
@@ -71,7 +71,7 @@ let currentFocusedIndex = 0;
 let arenaFloorMesh = null;
 let ambientParticlesMesh = null;
 
-// 3D Pokéball Spawner & Summon Particles
+// 3D Pokéball Spawner
 let spawnerGroup = null;
 let pokeballTopHalf = null;
 let pokeballBottomHalf = null;
@@ -92,9 +92,9 @@ async function apiFetch(endpoint) {
   return await res.json();
 }
 
-// Helper: Extract valid printable variants array from card
+// Helper: Extract valid printable variants
 function getCardAvailableVariants(card) {
-  if (!card.variants) {
+  if (!card || !card.variants) {
     return ['normal'];
   }
   const keys = Object.keys(card.variants).filter(k => card.variants[k] === true);
@@ -144,7 +144,7 @@ async function loadSets() {
   }
 }
 
-// --- 5. UPDATED SYNC SET DATA FROM TCGDEX ---
+// --- 5. SYNC SET DATA FROM TCGDEX ---
 btnSync.addEventListener('click', async () => {
   const setId = setSelect.value;
   if (!setId) return alert('Please select a set first!');
@@ -155,8 +155,6 @@ btnSync.addEventListener('click', async () => {
     const setDetails = await apiFetch(`/sets/${setId}`);
     const rawCards = setDetails.cards || [];
 
-    statusMsg.textContent = `Saving ${rawCards.length} cards from ${setDetails.name}...`;
-
     const formattedCards = rawCards.map(c => {
       const extractedNumber = c.localId || (c.id ? c.id.split('-').pop() : '0');
 
@@ -166,12 +164,12 @@ btnSync.addEventListener('click', async () => {
         number: String(extractedNumber).trim(),
         image: c.image ? `${c.image}/low.webp` : FALLBACK_CARD_IMAGE,
         set: { id: setId, name: setDetails.name },
-        variants: c.variants || null // Will be populated dynamically on click or deep sync
+        variants: c.variants || null
       };
     });
 
     await db.cards.bulkPut(formattedCards);
-    statusMsg.textContent = `Synced ${formattedCards.length} cards locally! Click any card to load its official variants.`;
+    statusMsg.textContent = `Saved ${formattedCards.length} cards locally!`;
 
     renderGallery();
   } catch (err) {
@@ -180,12 +178,12 @@ btnSync.addEventListener('click', async () => {
   }
 });
 
-// Helper: Progress Stats (Variant-Aware Master Set Calculation)
+// Helper: Progress Stats (Variant-Aware)
 async function updateProgressStats() {
   const userVariants = await db.variantCollection.toArray();
   const ownedVariantKeys = new Set(userVariants.map(v => `${v.cardId}::${v.variant}`));
 
-  // Also include backward compatibility legacy full-card checks
+  // Backward compatibility
   const legacyOwned = await db.collection.toArray();
   legacyOwned.forEach(lo => {
     ownedVariantKeys.add(`${lo.cardId}::normal`);
@@ -210,7 +208,7 @@ async function updateProgressStats() {
   progressText.textContent = `${collectedVariantsCount} / ${totalAvailableVariantsCount} Variants Collected (${pct}%)`;
 }
 
-// --- 6. RENDER CARD GALLERY (2D / 3D SWITCH) ---
+// --- 6. RENDER CARD GALLERY ---
 async function renderGallery() {
   const setId = setSelect.value;
   const searchQuery = searchInput.value.toLowerCase().trim();
@@ -228,7 +226,6 @@ async function renderGallery() {
 
   let cards = [];
 
-  // GLOBAL SEARCH MODE
   if (searchQuery && !setId) {
     statusMsg.textContent = `Searching TCGdex for "${searchQuery}"...`;
     
@@ -250,7 +247,7 @@ async function renderGallery() {
           number: String(cardNumber).trim(),
           image: c.image ? `${c.image}/low.webp` : FALLBACK_CARD_IMAGE,
           set: { id: idParts[0], name: setCode },
-          variants: c.variants || { normal: true }
+          variants: c.variants || null
         };
       });
 
@@ -261,16 +258,13 @@ async function renderGallery() {
       console.error('API Search Error:', err);
       cards = await db.cards.where('name').startsWithIgnoreCase(searchQuery).toArray();
     }
-  } 
-  // SINGLE SET MODE
-  else if (setId) {
+  } else if (setId) {
     cards = await db.cards.where('set.id').equals(setId).toArray();
     if (searchQuery) {
       cards = cards.filter(c => c.name.toLowerCase().includes(searchQuery));
     }
   }
 
-  // NATURAL SORTING
   cards.sort((a, b) => {
     if (!setId && a.set?.id !== b.set?.id) {
       return String(a.set?.id).localeCompare(String(b.set?.id));
@@ -291,11 +285,14 @@ async function renderGallery() {
 
   currentCardsList = cards;
 
-  // Build Collection Map
   const userVariants = await db.variantCollection.toArray();
   const ownedVariantKeys = new Set(userVariants.map(v => `${v.cardId}::${v.variant}`));
 
-  // Card Status Map: 'none', 'partial', 'completed'
+  const legacyOwned = await db.collection.toArray();
+  legacyOwned.forEach(lo => {
+    ownedVariantKeys.add(`${lo.cardId}::normal`);
+  });
+
   const cardStatusMap = new Map();
   cards.forEach(c => {
     const availVariants = getCardAvailableVariants(c);
@@ -321,21 +318,18 @@ async function renderGallery() {
 
   updateProgressStats();
 
-  // --- 3D MODE ---
   if (currentViewMode === '3D') {
     render3DCarousel(displayableCards, cardStatusMap);
     statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D (Click card to open variant checklist).`;
     return;
   }
 
-  // --- 2D MODE ---
   displayableCards.forEach(card => {
     const statusObj = cardStatusMap.get(card.id) || { status: 'none', ownedCount: 0, total: 1 };
     const availVariants = getCardAvailableVariants(card);
 
     const cardEl = document.createElement('div');
     
-    // Tiered highlighting classes
     if (statusObj.status === 'completed') {
       cardEl.className = 'card-item completed';
     } else if (statusObj.status === 'partial') {
@@ -347,13 +341,12 @@ async function renderGallery() {
 
     const setLabel = !setId && card.set?.name ? `[${card.set.name}] ` : '';
 
-    // Generate Badges for each available variant
     let badgesHTML = '<div class="card-variants-badges">';
     availVariants.forEach(v => {
       const isOwned = ownedVariantKeys.has(`${card.id}::${v}`);
       const symbolMap = { normal: 'N', reverse: 'R', holo: 'H', firstEdition: '1st', wPromo: 'W' };
       const shortLabel = symbolMap[v] || v.substring(0, 3);
-      badgesHTML += `<span class="badge-variant ${isOwned ? 'owned' : 'missing'}" title="${v}">${shortLabel}</span>`;
+      badgesHTML += `<span class="badge-variant ${isOwned ? 'owned' : 'missing'}" data-variant="${v}" title="${v}">${shortLabel}</span>`;
     });
     badgesHTML += '</div>';
 
@@ -365,7 +358,6 @@ async function renderGallery() {
       </div>
     `;
 
-    // 2D CLICK: Pop out the variant legend modal
     cardEl.addEventListener('click', () => {
       openCardDetailsModal(card, null);
     });
@@ -453,7 +445,6 @@ function init3DScene() {
   stadiumLight2.position.set(-20, -10, -20);
   scene.add(stadiumLight2);
 
-  // 1. Procedural Pokéball Floor
   const pokeballTex = createPokeballTexture();
   const floorGeo = new THREE.CircleGeometry(1, 64);
   const floorMat = new THREE.MeshStandardMaterial({
@@ -467,7 +458,6 @@ function init3DScene() {
   arenaFloorMesh.position.y = -2.2;
   scene.add(arenaFloorMesh);
 
-  // 2. Ambient Floating Sparkles
   const ambientCount = 200;
   const ambientGeo = new THREE.BufferGeometry();
   const ambientPos = new Float32Array(ambientCount * 3);
@@ -488,7 +478,6 @@ function init3DScene() {
   ambientParticlesMesh = new THREE.Points(ambientGeo, ambientMat);
   scene.add(ambientParticlesMesh);
 
-  // 3. Center Pokéball & Summoner
   initCenterPokeballSpawner();
 
   controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -499,7 +488,6 @@ function init3DScene() {
 
   applyViewMode();
 
-  // Master Animation Loop
   function animate() {
     requestAnimationFrame(animate);
     if (currentViewMode === '3D' && renderer) {
@@ -585,7 +573,6 @@ function init3DScene() {
   });
 }
 
-// --- 3D POKÉBALL SPAWNER & LIGHT PARTICLE SUMMONER ---
 function initCenterPokeballSpawner() {
   spawnerGroup = new THREE.Group();
   scene.add(spawnerGroup);
@@ -845,16 +832,15 @@ function render3DCarousel(cards, cardStatusMap = new Map()) {
     const statusObj = cardStatusMap.get(card.id) || { status: 'none' };
     const texture = textureLoader.load(card.image);
 
-    // Color & Emissive tiering for 3D Cards
     let baseColor = 0x282828;
     let emissiveColor = 0x000000;
 
     if (statusObj.status === 'completed') {
       baseColor = 0xffffff;
-      emissiveColor = 0x443300; // Gold Glow
+      emissiveColor = 0x443300;
     } else if (statusObj.status === 'partial') {
       baseColor = 0xffffff;
-      emissiveColor = 0x002211; // Emerald Accent
+      emissiveColor = 0x002211;
     }
 
     const material = new THREE.MeshStandardMaterial({
@@ -1042,46 +1028,49 @@ hudCardInput.addEventListener('blur', () => {
   hudCardBadge.style.display = 'block';
 });
 
-// --- 9. UPDATED CARD DETAIL MODAL WITH ON-DEMAND VARIANT FETCHING ---
+// --- 9. CARD DETAIL MODAL / DYNAMIC VARIANT LEGEND ---
 async function openCardDetailsModal(card, meshRef) {
-  activeModalCard = card;
-
   modalCardName.textContent = card.name;
   modalCardImg.src = card.image;
   modalSetName.textContent = card.set?.name || 'Unknown Set';
   modalCardNumber.textContent = `#${card.number}`;
   modalCardId.textContent = card.id;
   modalStatus.textContent = 'Loading variants...';
-  modalVariantsList.innerHTML = '<div style="color:#9ba1b0; font-size:0.85rem; padding:10px;">Fetching variant data from TCGdex...</div>';
+  modalVariantsList.innerHTML = '<div style="color:#9ba1b0; font-size:0.85rem; padding:8px;">Fetching official variants...</div>';
 
   cardDetailModal.style.display = 'flex';
 
-  // 1. If variants are not cached locally, fetch the full card endpoint
   let currentCardData = await db.cards.get(card.id);
+  
+  // Robust Variant Fetching: Try Direct Card ID -> Fallback to Set + LocalID
   if (!currentCardData || !currentCardData.variants) {
     try {
-      const fullCardDetails = await apiFetch(`/cards/${card.id}`);
+      let fullCardDetails = null;
+      try {
+        fullCardDetails = await apiFetch(`/cards/${card.id}`);
+      } catch (e1) {
+        if (card.set?.id && card.number) {
+          fullCardDetails = await apiFetch(`/sets/${card.set.id}/${card.number}`);
+        }
+      }
+
       if (fullCardDetails && fullCardDetails.variants) {
         currentCardData = {
           ...card,
-          variants: fullCardDetails.variants,
-          rarity: fullCardDetails.rarity || card.rarity
+          variants: fullCardDetails.variants
         };
         await db.cards.put(currentCardData);
       }
     } catch (err) {
-      console.warn('Could not fetch full card details from API:', err);
+      console.warn('Could not fetch variants for card:', err);
     }
   }
 
-  // 2. Resolve available variants
   const availVariants = getCardAvailableVariants(currentCardData || card);
 
-  // 3. Read current collected variants for this card
   const collectedRecords = await db.variantCollection.where('cardId').equals(card.id).toArray();
   const collectedVariants = new Set(collectedRecords.map(r => r.variant));
 
-  // Legacy fallback: check old collection table if nothing in variantCollection
   if (collectedVariants.size === 0) {
     const isLegacyOwned = await db.collection.get(card.id);
     if (isLegacyOwned) {
@@ -1094,7 +1083,6 @@ async function openCardDetailsModal(card, meshRef) {
     }
   }
 
-  // 4. Render Variant Buttons
   modalVariantsList.innerHTML = '';
 
   const variantDisplayNames = {
@@ -1133,7 +1121,7 @@ async function openCardDetailsModal(card, meshRef) {
       }
 
       updateModalStatusLabel(collectedVariants.size, availVariants.length);
-      updateCardMeshStatus(card.id, collectedVariants.size, availVariants.length, meshRef);
+      updateCardMeshStatus(card.id, collectedVariants, availVariants, meshRef);
       updateProgressStats();
     });
 
@@ -1157,8 +1145,11 @@ function updateModalStatusLabel(ownedCount, totalCount) {
   }
 }
 
-function updateCardMeshStatus(cardId, ownedCount, totalCount, meshRef) {
-  // Update 3D mesh material if available
+// IN-PLACE DOM & 3D UPDATE (Never wipes or scrolls the 2D grid)
+function updateCardMeshStatus(cardId, collectedVariantsSet, availVariants, meshRef) {
+  const ownedCount = collectedVariantsSet.size;
+  const totalCount = availVariants.length;
+
   if (meshRef) {
     if (ownedCount === totalCount && totalCount > 0) {
       meshRef.material.color.setHex(0xffffff);
@@ -1172,7 +1163,7 @@ function updateCardMeshStatus(cardId, ownedCount, totalCount, meshRef) {
     }
   }
 
-  // Update 2D Card Element if open
+  // Update 2D Card Element directly in DOM without reloading gallery
   const cardEl = document.querySelector(`.card-item[data-card-id="${cardId}"]`);
   if (cardEl) {
     cardEl.classList.remove('missing', 'owned', 'completed');
@@ -1183,18 +1174,30 @@ function updateCardMeshStatus(cardId, ownedCount, totalCount, meshRef) {
     } else {
       cardEl.classList.add('missing');
     }
+
+    // Update variant badges on the tile
+    const badgeEls = cardEl.querySelectorAll('.badge-variant');
+    badgeEls.forEach(bEl => {
+      const vKey = bEl.dataset.variant;
+      if (collectedVariantsSet.has(vKey)) {
+        bEl.classList.remove('missing');
+        bEl.classList.add('owned');
+      } else {
+        bEl.classList.remove('owned');
+        bEl.classList.add('missing');
+      }
+    });
   }
 }
 
+// Close Modal WITHOUT triggering a full page re-render (Keeps exact scroll position)
 btnModalClose.addEventListener('click', () => {
   cardDetailModal.style.display = 'none';
-  if (currentViewMode === '2D') renderGallery();
 });
 
 window.addEventListener('click', (e) => {
   if (e.target === cardDetailModal) {
     cardDetailModal.style.display = 'none';
-    if (currentViewMode === '2D') renderGallery();
   }
 });
 
