@@ -9,7 +9,16 @@ db.version(4).stores({
 
 const FALLBACK_CARD_IMAGE = "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='210' viewBox='0 0 150 210'%3E%3Crect width='150' height='210' rx='8' fill='%231f2430' stroke='%233b4050' stroke-width='2'/%3E%3Ctext x='50%25' y='50%25' fill='%239ba1b0' font-family='sans-serif' font-size='13' font-weight='bold' text-anchor='middle' dy='.3em'%3ENo Card Image%3C/text%3E%3C/svg%3E";
 
-// Top 10 Popular Pokémon List
+// TCGdex Variant Badge Configuration
+const VARIANT_BADGE_MAP = {
+  normal: { symbol: 'N', name: 'Normal / Regular', color: '#6b7280' },
+  reverse: { symbol: 'R', name: 'Reverse Holo', color: '#8b5cf6' },
+  holo: { symbol: 'H', name: 'Holo Rare', color: '#38bdf8' },
+  firstEdition: { symbol: '1st', name: '1st Edition', color: '#f59e0b' },
+  wPromo: { symbol: 'W', name: 'W Promo', color: '#ec4899' }
+};
+
+// Top 10 Popular Pokémon List for Showcase
 const POPULAR_POKEMON_LIST = [
   { name: 'Pikachu', id: 25, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png', scaleMultiplier: 0.50 },
   { name: 'Charizard', id: 6, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png', scaleMultiplier: 0.70 },
@@ -54,6 +63,8 @@ const modalCardNumber = document.getElementById('modal-card-number');
 const modalCardId = document.getElementById('modal-card-id');
 const modalStatus = document.getElementById('modal-status');
 const modalVariantsList = document.getElementById('modal-variants-list');
+
+let activeModalCard = null;
 
 // --- 3. GLOBAL APP STATE & 3D VARIABLES ---
 let currentViewMode = '2D';
@@ -183,7 +194,7 @@ async function updateProgressStats() {
   const userVariants = await db.variantCollection.toArray();
   const ownedVariantKeys = new Set(userVariants.map(v => `${v.cardId}::${v.variant}`));
 
-  // Backward compatibility
+  // Legacy fallback
   const legacyOwned = await db.collection.toArray();
   legacyOwned.forEach(lo => {
     ownedVariantKeys.add(`${lo.cardId}::normal`);
@@ -344,9 +355,8 @@ async function renderGallery() {
     let badgesHTML = '<div class="card-variants-badges">';
     availVariants.forEach(v => {
       const isOwned = ownedVariantKeys.has(`${card.id}::${v}`);
-      const symbolMap = { normal: 'N', reverse: 'R', holo: 'H', firstEdition: '1st', wPromo: 'W' };
-      const shortLabel = symbolMap[v] || v.substring(0, 3);
-      badgesHTML += `<span class="badge-variant ${isOwned ? 'owned' : 'missing'}" data-variant="${v}" title="${v}">${shortLabel}</span>`;
+      const badgeInfo = VARIANT_BADGE_MAP[v] || { symbol: v.slice(0, 3), name: v };
+      badgesHTML += `<span class="badge-variant ${isOwned ? 'owned' : 'missing'}" data-variant="${v}" title="${badgeInfo.name}">${badgeInfo.symbol}</span>`;
     });
     badgesHTML += '</div>';
 
@@ -591,12 +601,12 @@ function initCenterPokeballSpawner() {
   pokeballBottomHalf = new THREE.Mesh(botGeo, whiteMat);
   spawnerGroup.add(pokeballBottomHalf);
 
-  const bandGeo = new THREE.CylinderGeometry(ballRadius * 1.01, ballRadius * 1.01, ballRadius * 0.1, 32);
+  const bandGeo = new THREE.CylinderGeometry(ballRadius * 1.01, ballRadius * 1.01, 0.1, 32);
   const blackMat = new THREE.MeshBasicMaterial({ color: 0x0f172a });
   pokeballBand = new THREE.Mesh(bandGeo, blackMat);
   spawnerGroup.add(pokeballBand);
 
-  const btnGeo = new THREE.CylinderGeometry(ballRadius * 0.32, ballRadius * 0.32, ballRadius * 0.12, 24);
+  const btnGeo = new THREE.CylinderGeometry(ballRadius * 0.32, ballRadius * 0.32, 0.12, 24);
   btnGeo.rotateX(Math.PI / 2);
   const btnMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
   pokeballButton = new THREE.Mesh(btnGeo, btnMat);
@@ -1030,6 +1040,8 @@ hudCardInput.addEventListener('blur', () => {
 
 // --- 9. CARD DETAIL MODAL / DYNAMIC VARIANT LEGEND ---
 async function openCardDetailsModal(card, meshRef) {
+  activeModalCard = card;
+
   modalCardName.textContent = card.name;
   modalCardImg.src = card.image;
   modalSetName.textContent = card.set?.name || 'Unknown Set';
@@ -1060,6 +1072,9 @@ async function openCardDetailsModal(card, meshRef) {
           variants: fullCardDetails.variants
         };
         await db.cards.put(currentCardData);
+
+        const memoryCard = currentCardsList.find(c => c.id === card.id);
+        if (memoryCard) memoryCard.variants = fullCardDetails.variants;
       }
     } catch (err) {
       console.warn('Could not fetch variants for card:', err);
@@ -1085,20 +1100,14 @@ async function openCardDetailsModal(card, meshRef) {
 
   modalVariantsList.innerHTML = '';
 
-  const variantDisplayNames = {
-    normal: 'Regular / Normal',
-    reverse: 'Reverse Holo',
-    holo: 'Holo Rare',
-    firstEdition: '1st Edition',
-    wPromo: 'W Promo'
-  };
-
   availVariants.forEach(variantKey => {
     const isOwned = collectedVariants.has(variantKey);
+    const badgeInfo = VARIANT_BADGE_MAP[variantKey] || { symbol: variantKey.slice(0, 3), name: variantKey };
+
     const btn = document.createElement('button');
     btn.className = `btn-variant-toggle ${isOwned ? 'active' : ''}`;
     btn.innerHTML = `
-      <span>${variantDisplayNames[variantKey] || variantKey}</span>
+      <span>[${badgeInfo.symbol}] ${badgeInfo.name}</span>
       <span>${isOwned ? '✓' : '+'}</span>
     `;
 
@@ -1129,6 +1138,7 @@ async function openCardDetailsModal(card, meshRef) {
   });
 
   updateModalStatusLabel(collectedVariants.size, availVariants.length);
+  updateCardMeshStatus(card.id, collectedVariants, availVariants, meshRef);
   updateProgressStats();
 }
 
@@ -1145,7 +1155,7 @@ function updateModalStatusLabel(ownedCount, totalCount) {
   }
 }
 
-// IN-PLACE DOM & 3D UPDATE (Never wipes or scrolls the 2D grid)
+// IN-PLACE DOM & 3D UPDATE (Preserves scroll position and updates symbols)
 function updateCardMeshStatus(cardId, collectedVariantsSet, availVariants, meshRef) {
   const ownedCount = collectedVariantsSet.size;
   const totalCount = availVariants.length;
@@ -1163,7 +1173,6 @@ function updateCardMeshStatus(cardId, collectedVariantsSet, availVariants, meshR
     }
   }
 
-  // Update 2D Card Element directly in DOM without reloading gallery
   const cardEl = document.querySelector(`.card-item[data-card-id="${cardId}"]`);
   if (cardEl) {
     cardEl.classList.remove('missing', 'owned', 'completed');
@@ -1175,22 +1184,23 @@ function updateCardMeshStatus(cardId, collectedVariantsSet, availVariants, meshR
       cardEl.classList.add('missing');
     }
 
-    // Update variant badges on the tile
-    const badgeEls = cardEl.querySelectorAll('.badge-variant');
-    badgeEls.forEach(bEl => {
-      const vKey = bEl.dataset.variant;
-      if (collectedVariantsSet.has(vKey)) {
-        bEl.classList.remove('missing');
-        bEl.classList.add('owned');
-      } else {
-        bEl.classList.remove('owned');
-        bEl.classList.add('missing');
-      }
+    let badgesContainer = cardEl.querySelector('.card-variants-badges');
+    if (!badgesContainer) {
+      badgesContainer = document.createElement('div');
+      badgesContainer.className = 'card-variants-badges';
+      cardEl.prepend(badgesContainer);
+    }
+
+    let badgesHTML = '';
+    availVariants.forEach(v => {
+      const isOwned = collectedVariantsSet.has(v);
+      const badgeInfo = VARIANT_BADGE_MAP[v] || { symbol: v.slice(0, 3), name: v };
+      badgesHTML += `<span class="badge-variant ${isOwned ? 'owned' : 'missing'}" data-variant="${v}" title="${badgeInfo.name}">${badgeInfo.symbol}</span>`;
     });
+    badgesContainer.innerHTML = badgesHTML;
   }
 }
 
-// Close Modal WITHOUT triggering a full page re-render (Keeps exact scroll position)
 btnModalClose.addEventListener('click', () => {
   cardDetailModal.style.display = 'none';
 });
