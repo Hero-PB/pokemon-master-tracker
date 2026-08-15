@@ -179,11 +179,9 @@ btnSync.addEventListener('click', async () => {
       };
     });
 
-    // Save basic cards first so the user sees cards immediately
     await db.cards.bulkPut(formattedCards);
     renderGallery();
 
-    // Batch-fetch detailed variants (concurrency of 8)
     const BATCH_SIZE = 8;
     let completedCount = 0;
 
@@ -229,7 +227,6 @@ async function updateProgressStats() {
   const userVariants = await db.variantCollection.toArray();
   const ownedVariantKeys = new Set(userVariants.map(v => `${v.cardId}::${v.variant}`));
 
-  // Legacy fallback
   const legacyOwned = await db.collection.toArray();
   legacyOwned.forEach(lo => {
     ownedVariantKeys.add(`${lo.cardId}::normal`);
@@ -254,7 +251,7 @@ async function updateProgressStats() {
   progressText.textContent = `${collectedVariantsCount} / ${totalAvailableVariantsCount} Variants Collected (${pct}%)`;
 }
 
-// --- 6. RENDER CARD GALLERY ---
+// --- 6. RENDER CARD GALLERY (WITH NAME-SEARCH VARIANT AUTO-FETCH) ---
 async function renderGallery() {
   const setId = setSelect.value;
   const searchQuery = searchInput.value.toLowerCase().trim();
@@ -272,6 +269,7 @@ async function renderGallery() {
 
   let cards = [];
 
+  // GLOBAL POKÉMON SEARCH MODE
   if (searchQuery && !setId) {
     statusMsg.textContent = `Searching TCGdex for "${searchQuery}"...`;
     
@@ -282,7 +280,12 @@ async function renderGallery() {
         c && c.name && c.name.toLowerCase().includes(searchQuery)
       );
 
+      // 1. Fetch locally cached records to preserve already downloaded variants
+      const existingLocalCards = await db.cards.where('id').anyOf(matchedCards.map(c => c.id)).toArray();
+      const localCardMap = new Map(existingLocalCards.map(c => [c.id, c]));
+
       cards = matchedCards.map(c => {
+        const cached = localCardMap.get(c.id);
         const idParts = c.id ? c.id.split('-') : ['unknown', '0'];
         const setCode = idParts[0].toUpperCase();
         const cardNumber = idParts.length > 1 ? idParts.slice(1).join('-') : (c.localId || '0');
@@ -293,9 +296,38 @@ async function renderGallery() {
           number: String(cardNumber).trim(),
           image: c.image ? `${c.image}/low.webp` : FALLBACK_CARD_IMAGE,
           set: { id: idParts[0], name: setCode },
-          variants: c.variants || null
+          variants: (cached && cached.variants) ? cached.variants : null
         };
       });
+
+      // 2. Identify cards that still need variant details
+      const missingVariantCards = cards.filter(c => !c.variants);
+
+      if (missingVariantCards.length > 0) {
+        statusMsg.textContent = `Found ${cards.length} cards. Fetching variants (${missingVariantCards.length} to load)...`;
+
+        const BATCH_SIZE = 8;
+        for (let i = 0; i < missingVariantCards.length; i += BATCH_SIZE) {
+          const batch = missingVariantCards.slice(i, i + BATCH_SIZE);
+          await Promise.all(batch.map(async (c) => {
+            try {
+              let details = null;
+              try {
+                details = await apiFetch(`/cards/${c.id}`);
+              } catch (err1) {
+                if (c.set?.id && c.number) {
+                  details = await apiFetch(`/sets/${c.set.id}/${c.number}`);
+                }
+              }
+              if (details && details.variants) {
+                c.variants = details.variants;
+              }
+            } catch (err) {
+              console.warn(`Could not load variant for ${c.id}`, err);
+            }
+          }));
+        }
+      }
 
       if (cards.length > 0) {
         await db.cards.bulkPut(cards);
@@ -304,13 +336,16 @@ async function renderGallery() {
       console.error('API Search Error:', err);
       cards = await db.cards.where('name').startsWithIgnoreCase(searchQuery).toArray();
     }
-  } else if (setId) {
+  } 
+  // SINGLE SET MODE
+  else if (setId) {
     cards = await db.cards.where('set.id').equals(setId).toArray();
     if (searchQuery) {
       cards = cards.filter(c => c.name.toLowerCase().includes(searchQuery));
     }
   }
 
+  // NATURAL SORTING
   cards.sort((a, b) => {
     if (!setId && a.set?.id !== b.set?.id) {
       return String(a.set?.id).localeCompare(String(b.set?.id));
@@ -331,6 +366,7 @@ async function renderGallery() {
 
   currentCardsList = cards;
 
+  // Build Collection Map
   const userVariants = await db.variantCollection.toArray();
   const ownedVariantKeys = new Set(userVariants.map(v => `${v.cardId}::${v.variant}`));
 
@@ -370,6 +406,7 @@ async function renderGallery() {
     return;
   }
 
+  // 2D Grid Render
   displayableCards.forEach(card => {
     const statusObj = cardStatusMap.get(card.id) || { status: 'none', ownedCount: 0, total: 1 };
     const availVariants = getCardAvailableVariants(card);
@@ -1089,7 +1126,6 @@ async function openCardDetailsModal(card, meshRef) {
 
   let currentCardData = await db.cards.get(card.id);
   
-  // Fetch from TCGdex if variants missing
   if (!currentCardData || !currentCardData.variants) {
     try {
       let fullCardDetails = null;
@@ -1190,7 +1226,6 @@ function updateModalStatusLabel(ownedCount, totalCount) {
   }
 }
 
-// IN-PLACE DOM & 3D UPDATE (Never wipes or scrolls the 2D grid)
 function updateCardMeshStatus(cardId, collectedVariantsSet, availVariants, meshRef) {
   const ownedCount = collectedVariantsSet.size;
   const totalCount = availVariants.length;
