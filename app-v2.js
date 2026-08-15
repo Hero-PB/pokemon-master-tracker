@@ -1,14 +1,15 @@
 // --- 1. INITIALIZE DEXIE DATABASE ---
 const db = new Dexie('PokemonMasterTrackerDB');
-db.version(3).stores({
+db.version(4).stores({
   sets: 'id, name, cardCount',
   cards: 'id, name, number, set.id',
-  collection: 'cardId, collectedAt'
+  collection: 'cardId, collectedAt',
+  variantCollection: '[cardId+variant], cardId, variant, collectedAt' // Multi-variant tracking
 });
 
 const FALLBACK_CARD_IMAGE = "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='210' viewBox='0 0 150 210'%3E%3Crect width='150' height='210' rx='8' fill='%231f2430' stroke='%233b4050' stroke-width='2'/%3E%3Ctext x='50%25' y='50%25' fill='%239ba1b0' font-family='sans-serif' font-size='13' font-weight='bold' text-anchor='middle' dy='.3em'%3ENo Card Image%3C/text%3E%3C/svg%3E";
 
-// Top 10 Popular Pokémon List (Calibrated Scale & Hover Height)
+// Top 10 Popular Pokémon List
 const POPULAR_POKEMON_LIST = [
   { name: 'Pikachu', id: 25, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png', scaleMultiplier: 0.50 },
   { name: 'Charizard', id: 6, sprite: 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/6.png', scaleMultiplier: 0.70 },
@@ -52,9 +53,7 @@ const modalSetName = document.getElementById('modal-set-name');
 const modalCardNumber = document.getElementById('modal-card-number');
 const modalCardId = document.getElementById('modal-card-id');
 const modalStatus = document.getElementById('modal-status');
-const btnModalToggleOwn = document.getElementById('btn-modal-toggle-own');
-
-let activeModalCard = null;
+const modalVariantsList = document.getElementById('modal-variants-list');
 
 // --- 3. GLOBAL APP STATE & 3D VARIABLES ---
 let currentViewMode = '2D';
@@ -91,6 +90,15 @@ async function apiFetch(endpoint) {
   const res = await fetch(`https://api.tcgdex.net/v2/en${endpoint}`);
   if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
   return await res.json();
+}
+
+// Helper: Extract valid printable variants array from card
+function getCardAvailableVariants(card) {
+  if (!card.variants) {
+    return ['normal'];
+  }
+  const keys = Object.keys(card.variants).filter(k => card.variants[k] === true);
+  return keys.length > 0 ? keys : ['normal'];
 }
 
 // --- 4. LOAD SETS DROPDOWN ---
@@ -136,7 +144,7 @@ async function loadSets() {
   }
 }
 
-// --- 5. SYNC SET DATA FROM TCGDEX ---
+// --- 5. SYNC SET DATA FROM TCGDEX (With Full Variant Details) ---
 btnSync.addEventListener('click', async () => {
   const setId = setSelect.value;
   if (!setId) return alert('Please select a set first!');
@@ -155,7 +163,8 @@ btnSync.addEventListener('click', async () => {
         name: c.name,
         number: String(extractedNumber).trim(),
         image: c.image ? `${c.image}/low.webp` : FALLBACK_CARD_IMAGE,
-        set: { id: setId, name: setDetails.name }
+        set: { id: setId, name: setDetails.name },
+        variants: c.variants || { normal: true }
       };
     });
 
@@ -169,21 +178,34 @@ btnSync.addEventListener('click', async () => {
   }
 });
 
-// Helper: Progress Stats
-async function updateProgressStats(totalCardsInSearch, displayableCount) {
-  const ownedCollection = await db.collection.toArray();
-  const ownedSet = new Set(ownedCollection.map(i => i.cardId));
+// Helper: Progress Stats (Variant-Aware Master Set Calculation)
+async function updateProgressStats() {
+  const userVariants = await db.variantCollection.toArray();
+  const ownedVariantKeys = new Set(userVariants.map(v => `${v.cardId}::${v.variant}`));
 
-  let ownedCount = 0;
-  currentCardsList.forEach(c => {
-    if (ownedSet.has(c.id)) ownedCount++;
+  // Also include backward compatibility legacy full-card checks
+  const legacyOwned = await db.collection.toArray();
+  legacyOwned.forEach(lo => {
+    ownedVariantKeys.add(`${lo.cardId}::normal`);
   });
 
-  const total = totalCardsInSearch || currentCardsList.length;
-  const pct = total > 0 ? Math.round((ownedCount / total) * 100) : 0;
+  let totalAvailableVariantsCount = 0;
+  let collectedVariantsCount = 0;
+
+  currentCardsList.forEach(c => {
+    const availVariants = getCardAvailableVariants(c);
+    totalAvailableVariantsCount += availVariants.length;
+    availVariants.forEach(vName => {
+      if (ownedVariantKeys.has(`${c.id}::${vName}`)) {
+        collectedVariantsCount++;
+      }
+    });
+  });
+
+  const pct = totalAvailableVariantsCount > 0 ? Math.round((collectedVariantsCount / totalAvailableVariantsCount) * 100) : 0;
 
   progressBar.style.width = `${pct}%`;
-  progressText.textContent = `${ownedCount} / ${total} Cards Collected (${pct}%)`;
+  progressText.textContent = `${collectedVariantsCount} / ${totalAvailableVariantsCount} Variants Collected (${pct}%)`;
 }
 
 // --- 6. RENDER CARD GALLERY (2D / 3D SWITCH) ---
@@ -225,7 +247,8 @@ async function renderGallery() {
           name: c.name,
           number: String(cardNumber).trim(),
           image: c.image ? `${c.image}/low.webp` : FALLBACK_CARD_IMAGE,
-          set: { id: idParts[0], name: setCode }
+          set: { id: idParts[0], name: setCode },
+          variants: c.variants || { normal: true }
         };
       });
 
@@ -266,53 +289,83 @@ async function renderGallery() {
 
   currentCardsList = cards;
 
-  const ownedCollection = await db.collection.toArray();
-  const ownedMap = new Map(ownedCollection.map(i => [i.cardId, i]));
+  // Build Collection Map
+  const userVariants = await db.variantCollection.toArray();
+  const ownedVariantKeys = new Set(userVariants.map(v => `${v.cardId}::${v.variant}`));
 
-  const displayableCards = cards.filter(card => {
-    const isOwned = ownedMap.has(card.id);
-    return isOwned || showMissing;
+  // Card Status Map: 'none', 'partial', 'completed'
+  const cardStatusMap = new Map();
+  cards.forEach(c => {
+    const availVariants = getCardAvailableVariants(c);
+    let ownedCount = 0;
+    availVariants.forEach(vName => {
+      if (ownedVariantKeys.has(`${c.id}::${vName}`)) ownedCount++;
+    });
+
+    if (ownedCount === 0) {
+      cardStatusMap.set(c.id, { status: 'none', ownedCount, total: availVariants.length });
+    } else if (ownedCount === availVariants.length) {
+      cardStatusMap.set(c.id, { status: 'completed', ownedCount, total: availVariants.length });
+    } else {
+      cardStatusMap.set(c.id, { status: 'partial', ownedCount, total: availVariants.length });
+    }
   });
 
-  updateProgressStats(cards.length, displayableCards.length);
+  const displayableCards = cards.filter(card => {
+    const statusObj = cardStatusMap.get(card.id);
+    const hasAny = statusObj && statusObj.status !== 'none';
+    return hasAny || showMissing;
+  });
+
+  updateProgressStats();
 
   // --- 3D MODE ---
   if (currentViewMode === '3D') {
-    render3DCarousel(displayableCards, ownedMap);
-    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D (Toggle Auto-Showcase for wide view).`;
+    render3DCarousel(displayableCards, cardStatusMap);
+    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D (Click card to open variant checklist).`;
     return;
   }
 
   // --- 2D MODE ---
   displayableCards.forEach(card => {
-    const isOwned = ownedMap.has(card.id);
+    const statusObj = cardStatusMap.get(card.id) || { status: 'none', ownedCount: 0, total: 1 };
+    const availVariants = getCardAvailableVariants(card);
 
     const cardEl = document.createElement('div');
-    cardEl.className = `card-item ${isOwned ? 'owned' : 'missing'}`;
+    
+    // Tiered highlighting classes
+    if (statusObj.status === 'completed') {
+      cardEl.className = 'card-item completed';
+    } else if (statusObj.status === 'partial') {
+      cardEl.className = 'card-item owned';
+    } else {
+      cardEl.className = 'card-item missing';
+    }
     cardEl.dataset.cardId = card.id;
 
     const setLabel = !setId && card.set?.name ? `[${card.set.name}] ` : '';
 
+    // Generate Badges for each available variant
+    let badgesHTML = '<div class="card-variants-badges">';
+    availVariants.forEach(v => {
+      const isOwned = ownedVariantKeys.has(`${card.id}::${v}`);
+      const symbolMap = { normal: 'N', reverse: 'R', holo: 'H', firstEdition: '1st', wPromo: 'W' };
+      const shortLabel = symbolMap[v] || v.substring(0, 3);
+      badgesHTML += `<span class="badge-variant ${isOwned ? 'owned' : 'missing'}" title="${v}">${shortLabel}</span>`;
+    });
+    badgesHTML += '</div>';
+
     cardEl.innerHTML = `
+      ${badgesHTML}
       <img src="${card.image}" alt="${card.name}" loading="lazy" onerror="this.onerror=null; this.src='${FALLBACK_CARD_IMAGE}';">
       <div style="margin-top:6px; font-weight:bold; font-size:0.8rem;">
         ${card.name} (${setLabel}#${card.number})
       </div>
     `;
 
-    cardEl.addEventListener('click', async () => {
-      const nowOwned = cardEl.classList.contains('owned');
-      if (nowOwned) {
-        await db.collection.delete(card.id);
-        cardEl.classList.remove('owned');
-        cardEl.classList.add('missing');
-        if (!showMissing) cardEl.remove();
-      } else {
-        await db.collection.put({ cardId: card.id, collectedAt: new Date().toISOString() });
-        cardEl.classList.remove('missing');
-        cardEl.classList.add('owned');
-      }
-      updateProgressStats(cards.length, displayableCards.length);
+    // 2D CLICK: Pop out the variant legend modal
+    cardEl.addEventListener('click', () => {
+      openCardDetailsModal(card, null);
     });
 
     gallery.appendChild(cardEl);
@@ -444,12 +497,11 @@ function init3DScene() {
 
   applyViewMode();
 
-  // Animation Loop
+  // Master Animation Loop
   function animate() {
     requestAnimationFrame(animate);
     if (currentViewMode === '3D' && renderer) {
 
-      // Ambient sparkles
       if (ambientParticlesMesh) {
         const positions = ambientParticlesMesh.geometry.attributes.position.array;
         for (let i = 1; i < positions.length; i += 3) {
@@ -460,17 +512,14 @@ function init3DScene() {
         ambientParticlesMesh.rotation.y += 0.0005;
       }
 
-      // Auto-Showcase continuous slow roll
       if (isShowcaseAutoMode && carouselGroup) {
         currentTargetRotation -= 0.0022;
       }
 
-      // Animate Center Pokémon Spawner ONLY if Auto-Showcase is active
       if (isShowcaseAutoMode) {
         animatePokeballSpawner();
       }
 
-      // Card Carousel Rotation & Active Focus Pop-out
       if (carouselGroup && cardMeshes.length > 0) {
         carouselGroup.rotation.y += (currentTargetRotation - carouselGroup.rotation.y) * 0.12;
 
@@ -543,25 +592,21 @@ function initCenterPokeballSpawner() {
 
   const ballRadius = Math.max(1.0, carouselRadius * 0.045);
   
-  // Top Red Half
   const topGeo = new THREE.SphereGeometry(ballRadius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2);
   const redMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.25, metalness: 0.2 });
   pokeballTopHalf = new THREE.Mesh(topGeo, redMat);
   spawnerGroup.add(pokeballTopHalf);
 
-  // Bottom White Half
   const botGeo = new THREE.SphereGeometry(ballRadius, 32, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
   const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.25, metalness: 0.2 });
   pokeballBottomHalf = new THREE.Mesh(botGeo, whiteMat);
   spawnerGroup.add(pokeballBottomHalf);
 
-  // Black Dividing Ring
   const bandGeo = new THREE.CylinderGeometry(ballRadius * 1.01, ballRadius * 1.01, ballRadius * 0.1, 32);
   const blackMat = new THREE.MeshBasicMaterial({ color: 0x0f172a });
   pokeballBand = new THREE.Mesh(bandGeo, blackMat);
   spawnerGroup.add(pokeballBand);
 
-  // Center Button
   const btnGeo = new THREE.CylinderGeometry(ballRadius * 0.32, ballRadius * 0.32, ballRadius * 0.12, 24);
   btnGeo.rotateX(Math.PI / 2);
   const btnMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
@@ -569,7 +614,6 @@ function initCenterPokeballSpawner() {
   pokeballButton.position.set(0, 0, ballRadius * 0.96);
   spawnerGroup.add(pokeballButton);
 
-  // Light Particles for Summoning Burst
   const pCount = 140;
   const summonGeo = new THREE.BufferGeometry();
   const summonPos = new Float32Array(pCount * 3);
@@ -609,7 +653,6 @@ function loadPokemonShowcaseSprite(pokemon) {
   const textureLoader = new THREE.TextureLoader();
   const spriteTexture = textureLoader.load(pokemon.sprite);
   
-  // Proportional Scale matching screenshot
   const dynamicSize = carouselRadius * (pokemon.scaleMultiplier || 0.60);
 
   const planeGeo = new THREE.PlaneGeometry(dynamicSize, dynamicSize);
@@ -733,14 +776,12 @@ function applyViewMode() {
   if (!controls || !camera) return;
 
   if (isShowcaseAutoMode) {
-    // --- EXACT SCREENSHOT PERSPECTIVE ---
     controls.enabled = true;
     controls.enableRotate = true;
     controls.enableZoom = true;
 
     if (spawnerGroup) spawnerGroup.visible = true;
 
-    // Proportional 3D Stadium geometry calibrated to fit full circular ring from top to bottom
     const camY = carouselRadius * 0.78 + 4;
     const camZ = carouselRadius * 1.82 + 10;
     
@@ -752,7 +793,6 @@ function applyViewMode() {
     controls.target.set(0, targetY, targetZ);
 
   } else {
-    // --- NORMAL LOCKED FRONT-ROW VIEW ---
     if (spawnerGroup) {
       spawnerGroup.visible = false;
       if (currentPokemonMesh) currentPokemonMesh.scale.set(0, 0, 0);
@@ -771,7 +811,7 @@ function applyViewMode() {
   }
 }
 
-function render3DCarousel(cards, ownedMap = new Map()) {
+function render3DCarousel(cards, cardStatusMap = new Map()) {
   init3DScene();
 
   cardMeshes.forEach(mesh => carouselGroup.remove(mesh));
@@ -800,15 +840,28 @@ function render3DCarousel(cards, ownedMap = new Map()) {
   }
 
   cards.forEach((card, index) => {
-    const isOwned = ownedMap.has(card.id);
+    const statusObj = cardStatusMap.get(card.id) || { status: 'none' };
     const texture = textureLoader.load(card.image);
+
+    // Color & Emissive tiering for 3D Cards
+    let baseColor = 0x282828;
+    let emissiveColor = 0x000000;
+
+    if (statusObj.status === 'completed') {
+      baseColor = 0xffffff;
+      emissiveColor = 0x443300; // Gold Glow
+    } else if (statusObj.status === 'partial') {
+      baseColor = 0xffffff;
+      emissiveColor = 0x002211; // Emerald Accent
+    }
 
     const material = new THREE.MeshStandardMaterial({
       map: texture,
       side: THREE.DoubleSide,
       roughness: 0.3,
       metalness: 0.1,
-      color: isOwned ? new THREE.Color(0xffffff) : new THREE.Color(0x282828)
+      color: new THREE.Color(baseColor),
+      emissive: new THREE.Color(emissiveColor)
     });
 
     const mesh = new THREE.Mesh(cardGeometry, material);
@@ -834,7 +887,7 @@ function render3DCarousel(cards, ownedMap = new Map()) {
   applyViewMode();
 }
 
-// Mouse Wheel: Roll through cards (Shift + Wheel to zoom distance)
+// Mouse Wheel
 threeContainer.addEventListener('wheel', (e) => {
   if (currentViewMode !== '3D' || cardMeshes.length === 0) return;
   e.preventDefault();
@@ -987,57 +1040,121 @@ hudCardInput.addEventListener('blur', () => {
   hudCardBadge.style.display = 'block';
 });
 
-// --- 9. CARD DETAIL MODAL / INFORMATION LEGEND ---
+// --- 9. CARD DETAIL MODAL / DYNAMIC VARIANT LEGEND ---
 async function openCardDetailsModal(card, meshRef) {
-  activeModalCard = card;
-  const isOwned = await db.collection.get(card.id);
-
   modalCardName.textContent = card.name;
   modalCardImg.src = card.image;
   modalSetName.textContent = card.set?.name || 'Unknown Set';
   modalCardNumber.textContent = `#${card.number}`;
   modalCardId.textContent = card.id;
 
-  updateModalOwnershipUI(Boolean(isOwned));
+  const availVariants = getCardAvailableVariants(card);
 
-  btnModalToggleOwn.onclick = async () => {
-    const currentlyOwned = Boolean(await db.collection.get(card.id));
-    if (currentlyOwned) {
-      await db.collection.delete(card.id);
-      if (meshRef) meshRef.material.color.setHex(0x282828);
-      updateModalOwnershipUI(false);
-    } else {
-      await db.collection.put({ cardId: card.id, collectedAt: new Date().toISOString() });
-      if (meshRef) meshRef.material.color.setHex(0xffffff);
-      updateModalOwnershipUI(true);
-    }
-    updateProgressStats();
+  // Read current collected variants for this card
+  const collectedRecords = await db.variantCollection.where('cardId').equals(card.id).toArray();
+  const collectedVariants = new Set(collectedRecords.map(r => r.variant));
+
+  // Render Variant Buttons
+  modalVariantsList.innerHTML = '';
+
+  const variantDisplayNames = {
+    normal: 'Regular / Normal',
+    reverse: 'Reverse Holo',
+    holo: 'Holo Rare',
+    firstEdition: '1st Edition',
+    wPromo: 'W Promo'
   };
 
+  availVariants.forEach(variantKey => {
+    const isOwned = collectedVariants.has(variantKey);
+    const btn = document.createElement('button');
+    btn.className = `btn-variant-toggle ${isOwned ? 'active' : ''}`;
+    btn.innerHTML = `
+      <span>${variantDisplayNames[variantKey] || variantKey}</span>
+      <span>${isOwned ? '✓' : '+'}</span>
+    `;
+
+    btn.addEventListener('click', async () => {
+      const nowActive = btn.classList.contains('active');
+      if (nowActive) {
+        await db.variantCollection.where('[cardId+variant]').equals([card.id, variantKey]).delete();
+        btn.classList.remove('active');
+        btn.querySelector('span:last-child').textContent = '+';
+        collectedVariants.delete(variantKey);
+      } else {
+        await db.variantCollection.put({
+          cardId: card.id,
+          variant: variantKey,
+          collectedAt: new Date().toISOString()
+        });
+        btn.classList.add('active');
+        btn.querySelector('span:last-child').textContent = '✓';
+        collectedVariants.add(variantKey);
+      }
+
+      updateModalStatusLabel(collectedVariants.size, availVariants.length);
+      updateCardMeshStatus(card.id, collectedVariants.size, availVariants.length, meshRef);
+      updateProgressStats();
+    });
+
+    modalVariantsList.appendChild(btn);
+  });
+
+  updateModalStatusLabel(collectedVariants.size, availVariants.length);
   cardDetailModal.style.display = 'flex';
 }
 
-function updateModalOwnershipUI(isOwned) {
-  if (isOwned) {
-    modalStatus.textContent = 'Collected (In Master Set)';
+function updateModalStatusLabel(ownedCount, totalCount) {
+  if (ownedCount === totalCount && totalCount > 0) {
+    modalStatus.textContent = `⭐ Master Set Complete (${ownedCount}/${totalCount})`;
+    modalStatus.style.color = '#ffcb05';
+  } else if (ownedCount > 0) {
+    modalStatus.textContent = `Partial (${ownedCount}/${totalCount} Variants)`;
     modalStatus.style.color = '#10b981';
-    btnModalToggleOwn.textContent = 'Mark as Missing';
-    btnModalToggleOwn.style.backgroundColor = '#ef4444';
   } else {
-    modalStatus.textContent = 'Missing';
+    modalStatus.textContent = `Missing (0/${totalCount})`;
     modalStatus.style.color = '#9ba1b0';
-    btnModalToggleOwn.textContent = 'Mark as Collected';
-    btnModalToggleOwn.style.backgroundColor = '#10b981';
+  }
+}
+
+function updateCardMeshStatus(cardId, ownedCount, totalCount, meshRef) {
+  // Update 3D mesh material if available
+  if (meshRef) {
+    if (ownedCount === totalCount && totalCount > 0) {
+      meshRef.material.color.setHex(0xffffff);
+      meshRef.material.emissive.setHex(0x443300);
+    } else if (ownedCount > 0) {
+      meshRef.material.color.setHex(0xffffff);
+      meshRef.material.emissive.setHex(0x002211);
+    } else {
+      meshRef.material.color.setHex(0x282828);
+      meshRef.material.emissive.setHex(0x000000);
+    }
+  }
+
+  // Update 2D Card Element if open
+  const cardEl = document.querySelector(`.card-item[data-card-id="${cardId}"]`);
+  if (cardEl) {
+    cardEl.classList.remove('missing', 'owned', 'completed');
+    if (ownedCount === totalCount && totalCount > 0) {
+      cardEl.classList.add('completed');
+    } else if (ownedCount > 0) {
+      cardEl.classList.add('owned');
+    } else {
+      cardEl.classList.add('missing');
+    }
   }
 }
 
 btnModalClose.addEventListener('click', () => {
   cardDetailModal.style.display = 'none';
+  if (currentViewMode === '2D') renderGallery();
 });
 
 window.addEventListener('click', (e) => {
   if (e.target === cardDetailModal) {
     cardDetailModal.style.display = 'none';
+    if (currentViewMode === '2D') renderGallery();
   }
 });
 

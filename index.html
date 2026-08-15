@@ -165,26 +165,44 @@
     /* 2D Gallery Grid */
     .gallery-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
       gap: 15px;
       width: 100%;
     }
 
     .card-item {
+      position: relative;
       background-color: #1a1d26;
       border-radius: 8px;
       padding: 10px;
       text-align: center;
       border: 2px solid transparent;
       cursor: pointer;
-      transition: transform 0.2s, border-color 0.2s, background-color 0.2s;
+      transition: transform 0.2s, border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
     }
 
     .card-item:hover {
       transform: translateY(-4px);
     }
 
-    /* OWNED / COLLECTED */
+    /* 1. MISSING / UNCOLLECTED */
+    .card-item.missing {
+      border-color: #2b303d;
+      background-color: #14171f;
+    }
+
+    .card-item.missing img {
+      filter: grayscale(100%) brightness(35%);
+      opacity: 0.55;
+      transition: filter 0.3s ease, opacity 0.3s ease;
+    }
+
+    .card-item.missing:hover img {
+      filter: grayscale(35%) brightness(75%);
+      opacity: 0.85;
+    }
+
+    /* 2. PARTIALLY COLLECTED (At least 1 variant owned) */
     .card-item.owned {
       border-color: #10b981;
       background-color: #122820;
@@ -195,21 +213,29 @@
       opacity: 1;
     }
 
-    /* MISSING / UNCOLLECTED */
-    .card-item.missing {
-      border-color: #2b303d;
-      background-color: #14171f;
+    /* 3. COMPLETE / MASTER SET COMPLETE (All variants owned) -> Pokémon Holographic Glow */
+    .card-item.completed {
+      border: 2px solid #ffcb05 !important;
+      background: linear-gradient(135deg, rgba(255, 203, 5, 0.15), rgba(59, 130, 246, 0.15)) !important;
+      box-shadow: 0 0 16px rgba(255, 203, 5, 0.75), inset 0 0 10px rgba(255, 203, 5, 0.3);
+      animation: holoPulse 3s infinite alternate;
     }
 
-    .card-item.missing img {
-      filter: grayscale(100%) brightness(35%);
-      opacity: 0.6;
-      transition: filter 0.3s ease, opacity 0.3s ease;
+    .card-item.completed img {
+      filter: none;
+      opacity: 1;
     }
 
-    .card-item.missing:hover img {
-      filter: grayscale(40%) brightness(75%);
-      opacity: 0.85;
+    @keyframes holoPulse {
+      0% {
+        box-shadow: 0 0 12px rgba(255, 203, 5, 0.6), inset 0 0 8px rgba(255, 203, 5, 0.2);
+      }
+      50% {
+        box-shadow: 0 0 20px rgba(56, 189, 248, 0.8), inset 0 0 12px rgba(56, 189, 248, 0.35);
+      }
+      100% {
+        box-shadow: 0 0 18px rgba(236, 72, 153, 0.75), inset 0 0 10px rgba(236, 72, 153, 0.3);
+      }
     }
 
     .card-item img {
@@ -217,6 +243,43 @@
       height: auto;
       border-radius: 4px;
       display: block;
+    }
+
+    /* Variant Badges on Card Tile */
+    .card-variants-badges {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      z-index: 5;
+    }
+
+    .badge-variant {
+      font-size: 0.65rem;
+      font-weight: 900;
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-family: 'Orbitron', sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      line-height: 1;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(4px);
+    }
+
+    .badge-variant.owned {
+      background-color: rgba(16, 185, 129, 0.9);
+      color: #ffffff;
+      border-color: #10b981;
+      box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+    }
+
+    .badge-variant.missing {
+      background-color: rgba(30, 35, 48, 0.8);
+      color: #6b7280;
+      border-color: #374151;
     }
 
     /* 3D Scene Viewport Wrapper */
@@ -360,8 +423,8 @@
       border: 1px solid #3b4050;
       border-radius: 12px;
       padding: 24px;
-      max-width: 480px;
-      width: 90%;
+      max-width: 520px;
+      width: 92%;
       position: relative;
       box-shadow: 0 10px 30px rgba(0,0,0,0.8);
       display: flex;
@@ -402,7 +465,7 @@
     }
 
     .modal-card-img {
-      width: 150px;
+      width: 140px;
       border-radius: 8px;
       border: 1px solid #3b4050;
       object-fit: contain;
@@ -414,6 +477,7 @@
       gap: 8px;
       font-size: 0.9rem;
       justify-content: center;
+      flex-grow: 1;
     }
 
     .modal-row {
@@ -433,11 +497,49 @@
       color: #f0f4f8;
     }
 
-    .modal-footer {
+    /* Variant Checklist Box in Modal */
+    .variant-checklist-section {
+      border-top: 1px solid #2b303d;
+      padding-top: 14px;
       display: flex;
-      justify-content: flex-end;
+      flex-direction: column;
       gap: 10px;
-      margin-top: 10px;
+    }
+
+    .variant-checklist-title {
+      font-size: 0.85rem;
+      color: #ffcb05;
+      font-family: 'Orbitron', sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .variant-buttons-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 8px;
+    }
+
+    .btn-variant-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: bold;
+      border: 1px solid #3b4050;
+      background-color: #262a36;
+      color: #9ba1b0;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-variant-toggle.active {
+      background-color: #10b981;
+      border-color: #059669;
+      color: #ffffff;
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
     }
   </style>
 </head>
@@ -498,7 +600,7 @@
     </div>
   </div>
 
-  <!-- Card Details Information Legend Modal -->
+  <!-- Card Details Information Legend Modal with Variant Checklist -->
   <div id="card-detail-modal">
     <div class="modal-content">
       <div class="modal-header">
@@ -521,13 +623,18 @@
             <span class="modal-value" id="modal-card-id">-</span>
           </div>
           <div class="modal-row">
-            <span class="modal-label">Status</span>
+            <span class="modal-label">Master Status</span>
             <span class="modal-value" id="modal-status">-</span>
           </div>
         </div>
       </div>
-      <div class="modal-footer">
-        <button id="btn-modal-toggle-own" style="width: 100%; padding: 10px;">Toggle Owned</button>
+
+      <!-- Available Variants Checklist Grid -->
+      <div class="variant-checklist-section">
+        <div class="variant-checklist-title">✨ Available Variants Checklist</div>
+        <div id="modal-variants-list" class="variant-buttons-grid">
+          <!-- Dynamically populated variant buttons -->
+        </div>
       </div>
     </div>
   </div>
@@ -540,7 +647,7 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
   <!-- Application Logic -->
-  <script src="app-v2.js?v=pokemon_showcase_perfect_v1"></script>
+  <script src="app-v2.js?v=variants_masterset_system_v1"></script>
 
 </body>
 </html>
