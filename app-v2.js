@@ -155,12 +155,13 @@ async function loadSets() {
   }
 }
 
-// --- 5. SYNC SET DATA FROM TCGDEX ---
+// --- 5. BATCH SYNC SET DATA WITH VARIANTS ---
 btnSync.addEventListener('click', async () => {
   const setId = setSelect.value;
   if (!setId) return alert('Please select a set first!');
 
-  statusMsg.textContent = `Syncing set: ${setId}...`;
+  btnSync.disabled = true;
+  statusMsg.textContent = `Fetching card list for ${setId}...`;
 
   try {
     const setDetails = await apiFetch(`/sets/${setId}`);
@@ -168,7 +169,6 @@ btnSync.addEventListener('click', async () => {
 
     const formattedCards = rawCards.map(c => {
       const extractedNumber = c.localId || (c.id ? c.id.split('-').pop() : '0');
-
       return {
         id: c.id,
         name: c.name,
@@ -179,13 +179,48 @@ btnSync.addEventListener('click', async () => {
       };
     });
 
+    // Save basic cards first so the user sees cards immediately
     await db.cards.bulkPut(formattedCards);
-    statusMsg.textContent = `Saved ${formattedCards.length} cards locally!`;
+    renderGallery();
 
+    // Batch-fetch detailed variants (concurrency of 8)
+    const BATCH_SIZE = 8;
+    let completedCount = 0;
+
+    for (let i = 0; i < formattedCards.length; i += BATCH_SIZE) {
+      const batch = formattedCards.slice(i, i + BATCH_SIZE);
+      
+      await Promise.all(batch.map(async (card) => {
+        try {
+          let details = null;
+          try {
+            details = await apiFetch(`/cards/${card.id}`);
+          } catch (e) {
+            if (card.set?.id && card.number) {
+              details = await apiFetch(`/sets/${card.set.id}/${card.number}`);
+            }
+          }
+
+          if (details && details.variants) {
+            card.variants = details.variants;
+            await db.cards.put(card);
+          }
+        } catch (err) {
+          console.warn(`Could not sync variant for ${card.id}:`, err);
+        }
+        completedCount++;
+      }));
+
+      statusMsg.textContent = `Syncing variants: ${completedCount} / ${formattedCards.length} cards...`;
+    }
+
+    statusMsg.textContent = `Successfully synced all ${formattedCards.length} cards with full variants!`;
     renderGallery();
   } catch (err) {
     console.error('SYNC ERROR:', err);
-    statusMsg.textContent = 'Sync failed. Check connection.';
+    statusMsg.textContent = 'Sync failed. Please check your internet connection.';
+  } finally {
+    btnSync.disabled = false;
   }
 });
 
@@ -331,7 +366,7 @@ async function renderGallery() {
 
   if (currentViewMode === '3D') {
     render3DCarousel(displayableCards, cardStatusMap);
-    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D (Click card to open variant checklist).`;
+    statusMsg.textContent = `Displaying ${displayableCards.length} cards in 3D.`;
     return;
   }
 
@@ -1054,7 +1089,7 @@ async function openCardDetailsModal(card, meshRef) {
 
   let currentCardData = await db.cards.get(card.id);
   
-  // Robust Variant Fetching: Try Direct Card ID -> Fallback to Set + LocalID
+  // Fetch from TCGdex if variants missing
   if (!currentCardData || !currentCardData.variants) {
     try {
       let fullCardDetails = null;
@@ -1155,7 +1190,7 @@ function updateModalStatusLabel(ownedCount, totalCount) {
   }
 }
 
-// IN-PLACE DOM & 3D UPDATE (Preserves scroll position and updates symbols)
+// IN-PLACE DOM & 3D UPDATE (Never wipes or scrolls the 2D grid)
 function updateCardMeshStatus(cardId, collectedVariantsSet, availVariants, meshRef) {
   const ownedCount = collectedVariantsSet.size;
   const totalCount = availVariants.length;
